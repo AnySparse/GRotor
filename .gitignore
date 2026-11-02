@@ -1,0 +1,15 @@
+# Local builds and experiment artifacts
+/build/
+/cmake-build-*/
+/results/
+/artifacts/
+/data/
+*.out
+*.out.gz
+*.log
+*.ptx
+__pycache__/
+*.py[cod]
+
+# Build the evaluator from source instead of tracking its bundled executable.
+/baseline/InstantGR2/run/evaluator

@@ -1,0 +1,547 @@
+# GRotor
+
+Build GRotor and compare its L-shape and FLT routing runtimes and evaluator
+scores with InstantGR2. The main test produces total, batching and routing DAG
+tables, with speedups for both algorithms. Reports and logs are in English.
+
+## Requirements and setup
+
+Use Linux with:
+
+- An NVIDIA RTX GPU and a driver compatible with the installed CUDA toolkit.
+- CUDA `nvcc`, a compatible C++17 host compiler, and CMake 3.18 or newer.
+- NVIDIA OptiX SDK headers, Python 3.9 or newer, `nvidia-smi`, and GNU time at
+  `/usr/bin/time`. The routing comparison uses only the Python standard library;
+  the Figure 7, Figure 10 and Figure 11 plots additionally require Matplotlib.
+
+The tested setup is RTX 4090 (`sm_89`), CUDA 12.4 and OptiX 7.7. Run the commands
+below from the repository root. Set paths for your installation:
+
+```bash
+export NVCC=/usr/local/cuda-12.4/bin/nvcc
+export OPTIX_ROOT_DIR=/path/to/NVIDIA-OptiX-SDK-7.7.0
+```
+
+Provide matching `<case>.cap` and `<case>.net` files in the input directory,
+for example `../ISPD24_tmp/mempool_tile.cap` and
+`../ISPD24_tmp/mempool_tile.net`. The default input directory is `../ISPD24_tmp`.
+Relative input and result paths are resolved from the repository root.
+
+## Compile
+
+```bash
+cmake -S . -B build/GRotor-rtcore/sm_89 \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CUDA_COMPILER="$NVCC" \
+  -DCMAKE_CUDA_ARCHITECTURES=89 \
+  -DGROTOR_ENABLE_RTCORE=ON \
+  -DGROTOR_FULL_COST_REFERENCE=OFF \
+  -DOPTIX_ROOT_DIR="$OPTIX_ROOT_DIR"
+
+cmake --build build/GRotor-rtcore/sm_89 \
+  --target GRotor instantgr2_reference grotor_evaluator --parallel 2
+```
+
+This produces `GRotor`, `instantgr2_reference`, `grotor_evaluator`,
+`rtcore_batches.ptx` and `rtcore_cached.ptx` in the build directory. Keep both
+PTX files there when running the executables. GRotor uses the repository's
+lookup tables automatically.
+
+For another GPU architecture, change `89`, `sm_89` and the test script's
+`--cuda-arch` together. Normal performance tests enable RT-Core batching,
+warp/block DAG solving, BIT and incremental cost updates; keep
+`GROTOR_FULL_COST_REFERENCE=OFF`.
+
+## Run the comparison
+
+First check a small case using the build above:
+
+```bash
+python3 script/benchmark_grotor_system.py \
+  --no-build \
+  --data-dir ../ISPD24_tmp \
+  --cases mempool_tile \
+  --output-dir results/GRotor-smoke
+```
+
+Run all seven datasets:
+
+```bash
+python3 script/benchmark_grotor_system.py \
+  --no-build \
+  --data-dir ../ISPD24_tmp \
+  --output-dir results/GRotor-system
+```
+
+The default cases are `mempool_tile`, `ariane133_51`, `ariane133_68`, `nvdla`,
+`bsg_chip`, `mempool_group` and `mempool_cluster`. Each case runs InstantGR2 and
+GRotor sequentially, writes an actual routing output, and invokes the external
+evaluator. All four printed cost values must match, with zero open and
+incomplete nets. The temporary output is deleted after evaluation, before
+the next run. No `.out` or compressed routing reference is retained.
+
+The script can also configure and compile automatically; omit `--no-build`:
+
+```bash
+python3 script/benchmark_grotor_system.py \
+  --optix-root "$OPTIX_ROOT_DIR" \
+  --nvcc "$NVCC" \
+  --cases mempool_tile nvdla \
+  --output-dir results/GRotor-subset
+```
+
+Command format:
+
+```text
+python3 script/benchmark_grotor_system.py
+    [--data-dir INPUT_DIR] [--cases CASE [CASE ...]]
+    [--output-dir RESULTS_DIR] [--gpu INDEX] [--cuda-arch ARCH]
+    [--optix-root SDK_DIR] [--nvcc COMPILER] [--jobs N]
+    [--no-build] [--clean-results] [--validate-batches]
+```
+
+| Option | Default / behavior |
+|---|---|
+| `--data-dir` | `../ISPD24_tmp` |
+| `--cases` | All seven cases listed above; give names without extensions |
+| `--output-dir` | `results/GRotor-system`; must be below repository `results/` |
+| `--gpu` | Physical GPU index `0` |
+| `--cuda-arch` | `89`; selects `build/GRotor-rtcore/sm_<ARCH>/` |
+| `--optix-root` | Reads `OPTIX_ROOT_DIR` when omitted |
+| `--nvcc` | Reads `NVCC`, otherwise finds `nvcc` on `PATH` |
+| `--jobs` | `2` parallel compilation jobs |
+| `--no-build` | Reuses a matching Release build with RT-Core and incremental updates enabled |
+| `--clean-results` | Deletes and replaces only the selected report directory |
+| `--validate-batches` | Also compares both GRotor batch lists with CPU results; off for performance runs |
+
+Existing output directories are preserved by default. To repeat a test in the
+same directory, explicitly replace its previous reports and logs:
+
+```bash
+python3 script/benchmark_grotor_system.py --no-build --clean-results \
+  --data-dir ../ISPD24_tmp --output-dir results/GRotor-system
+```
+
+The script prints the completed tables and report path to the terminal.
+A routing, evaluator or configuration failure returns a nonzero exit status;
+inspect `summary.json`, `summary.md` and the case logs. Completed-case rows are
+retained in the report. Run tests on an otherwise idle GPU for comparable
+performance measurements.
+
+## Generated files
+
+All results go directly into the selected directory, without date subfolders.
+
+| File | Contents |
+|---|---|
+| `summary.md` | L-shape and FLT tables for total time, batching and DAG solving, plus quality and memory |
+| `runtime.csv` | One row per dataset/algorithm with all three runtime comparisons and speedups |
+| `stage-runtime.csv` | InstantGR2/GRotor batching, DAG and total times; total speedup |
+| `batching-runtime.csv` | CPU, CUDA-Core and RT-Core batching times; CPU/RT and CUDA/RT speedups |
+| `dag-runtime.csv` | InstantGR2/GRotor DAG times and speedup |
+| `quality.csv` | Matching wirelength, via, overflow and total evaluator costs; connectivity counts |
+| `memory.csv` | GRotor CPU peak RSS and sampled GPU peak/minimum free memory |
+| `summary.json` | Raw timings, exact commands, configuration, source/input/binary hashes and status |
+| `configure.log`, `build.log` | Present when the script performs compilation |
+| `<case>/baseline.routing.log`, `<case>/baseline.evaluator.log` | InstantGR2 routing and external evaluator logs |
+| `<case>/rtcore.routing.log`, `<case>/rtcore.evaluator.log` | GRotor routing and external evaluator logs |
+| `<case>/rtcore.host_memory.log`, `<case>/rtcore.gpu_memory.csv` | GNU time statistics and GPU memory samples |
+
+Every runtime CSV uses an `algorithm` column containing `L-shape` or `FLT`.
+There is no routing-backend or stage column in these tables. Runtime units are
+milliseconds; speedups are unitless ratios.
+
+## Reading the timings
+
+```text
+InstantGR2 total = CUDA-Core batching + InstantGR2 DAG execution
+GRotor total    = RT-Core batching   + GRotor DAG execution
+Speedup         = InstantGR2 time    / GRotor time
+```
+
+A speedup above `1` means GRotor is faster. The batching table additionally
+reports CPU batching time and CPU/RT speedup. CPU batching supplies InstantGR2's
+deterministic routing plan in dual mode; its time is excluded from algorithm
+totals. Sampling is fixed to `1`. GRotor uses standard RT-Core batching for
+L-shape and cached RT-Core batching for FLT, with no method-tuning arguments.
+
+L-shape DAG time covers its complete batch execution loop. GRotor FLT uses one
+continuous synchronized interval including compact upload, GPU batch assembly,
+cost/prefix updates, solving, demand commits and waits. InstantGR2 FLT retains
+its sum of per-batch GPU suffix times, excluding preceding CPU packing. These
+scope differences are retained in the comparison.
+
+Standard RT-Core timing covers the coloring loop; cached RT-Core timing covers
+pipeline preparation through coloring completion. Earlier geometry/BVH work
+and final batch collection are outside both intervals. CPU/CUDA-Core batching
+retains its complete-function timing. Algorithm totals exclude earlier
+preparation and file output. Complete GRotor phase and router times are also
+recorded in routing logs and `summary.json`.
+
+Performance tables contain single sequential runs with unlocked GPU clocks.
+GPU memory is sampled device-wide every 100 ms; CPU peak RSS comes from GNU time
+for the GRotor process. Evaluation runs after routing and is excluded from
+algorithm timing.
+
+## Regenerate tables without rerunning
+
+Use a saved system benchmark `summary.json` to export all tables to a separate
+directory. This requires no GPU, compilation, datasets or evaluator run:
+
+```bash
+python3 script/benchmark_grotor_system.py \
+  --report-only results/GRotor-system/summary.json \
+  --output-dir results/GRotor-tables
+```
+
+To replace a previously generated table directory, add `--clean-results`.
+The input report must be outside the output directory. The new summary records
+the source report path/hash and identifies the measurements as reused.
+
+## Figure 7: blocker ray-count microbenchmark
+
+Run one L-shape dataset and produce its paired count table and curve:
+
+```bash
+python3 script/run-fig7.py --case bsg_chip \
+  --data-dir ../ISPD24_tmp --optix-root "$OPTIX_ROOT_DIR" \
+  --output-dir results/fig7
+```
+
+The script builds `grotor_rtcore_ray_benchmark` and `rtcore_synchronous.ptx` in `build/fig7/sm_89/`.
+Add `--no-build` to reuse them. Matplotlib is required for plotting; install it
+in your Python environment with `python3 -m pip install matplotlib` if needed.
+GPU selection, compiler/architecture, build jobs and `--clean-results` work as
+in the main benchmark. `--case` is required and accepts exactly one dataset.
+
+Without `--output-dir`, files are written directly to
+`results/fig7/<case>/`. Each invocation produces one dataset's table and one
+plot, exported as PDF, SVG and PNG.
+
+The selected result directory contains:
+
+| File | Contents |
+|---|---|
+| `ray-counts.csv` | Exactly two columns: `without_blocker,with_blocker`; row 1 is iteration 0 |
+| `ray-counts.md` | The same complete two-column table in Markdown |
+| `round-stats.csv` | Iteration index, both trace counts and shared assignment progress |
+| `checks.json` | Exact per-net assignment-round/color and CPU batch-list checks |
+| `figure7.pdf`, `figure7.svg`, `figure7.png` | The two measured curves, including every iteration |
+| `worker.log`, `host-memory.log`, `gpu-memory.csv` | Execution log and memory observations |
+
+The same directory contains `summary.md` and `summary.json`, recording
+checks, totals, inputs, source/binary hashes and commands.
+
+This is a separate synchronous, uncached RT-Core method. Batch IDs are frozen
+throughout ray tracing; assignment decisions are stored separately and committed
+at the end of the round. Ray eligibility is also frozen. Both arms collect the
+same blocker state, but the control never uses it to suppress launches. Actual
+`optixTrace` calls are counted, rather than counting launch-grid threads.
+Every net must receive the same color in the same iteration in both arms;
+no rounds are padded or removed. Final batch lists must equal CPU batching.
+The microbenchmark stops after L-shape batching and creates no routing `.out`
+files or evaluator scores. Instrumented times are not performance results.
+
+Recreate this dataset's figure from its saved CSV/check files without GPU work:
+
+```bash
+python3 script/run-fig7.py --case bsg_chip --plot-only --output-dir results/fig7
+```
+
+Run the independent GPU checks, including a chain whose predicted count is
+`N, N-1, ..., 1` without blockers and `N, 1, ..., 1` with blockers:
+
+```bash
+cmake -S . -B build/fig7/sm_89 -DGROTOR_BUILD_RTCORE_BLOCKER_TESTS=ON
+cmake --build build/fig7/sm_89 --target grotor_rtcore_blocker_check --parallel 2
+ctest --test-dir build/fig7/sm_89 -R rtcore_blocker --output-on-failure
+```
+
+## Figure 10: per-batch routing DAG throughput
+
+Build and run the L-shape experiment for one specified dataset:
+
+```bash
+python3 script/run-fig10.py --nvcc "$NVCC" \
+  --case nvdla \
+  --data-dir ../ISPD24_tmp --output-dir results/fig10
+```
+
+`--case` is required. The default output directory is `results/fig10/<case>/`.
+This script needs CUDA and Matplotlib but does not need OptiX. It builds `grotor_dag_throughput` and
+`grotor_evaluator` under `build/fig10/sm_89/`. Use `--no-build` for subsequent
+runs, or start with a small smoke test:
+
+```bash
+python3 script/run-fig10.py --no-build --case mempool_tile \
+  --output-dir results/fig10-smoke
+```
+
+Command format:
+
+```text
+python3 script/run-fig10.py
+    --case CASE [--data-dir INPUT_DIR]
+    [--output-dir RESULTS_DIR] [--gpu INDEX] [--cuda-arch ARCH]
+    [--nvcc COMPILER] [--jobs N] [--no-build] [--clean-results]
+```
+
+Both variants reuse exactly the same CPU batch plan (sparsity `1`), net order
+and RSMT topology, and start from identical demand and route state:
+
+- **Without optimizations:** original thread-per-DAG algorithm with full cost
+  refresh and full prefix scans, using explicit device memory.
+- **With optimizations:** warp-per-DAG solving, BIT prefix maintenance and
+  incremental cost updates.
+
+Each batch is timed with synchronized CPU timestamps around cost/prefix
+updates, DAG solving/traceback and wire/via demand commits. Throughput is
+`batch net count / elapsed seconds`. CPU batching, topology construction,
+allocations, initial uploads, file output and evaluation precede or follow the
+measured intervals. The first batch includes cost/prefix initialization in
+both variants; no samples are filtered out. These per-batch measurements add
+synchronization overhead and are separate from the main benchmark's
+continuous stage timers.
+
+The selected result directory directly contains:
+
+| File | Contents |
+|---|---|
+| `throughput.csv`, `throughput.md` | Exactly two throughput columns: `without_optimizations,with_optimizations`, in nets/s; first data row is batch 0 |
+| `batch-runtime.csv` | Every batch's index, net/node count, shared plan hash, timestamps, both runtimes and throughput speedup |
+| `without-optimizations.csv`, `with-optimizations.csv` | Raw measured batch intervals |
+| `figure10.pdf`, `figure10.svg`, `figure10.png` | Complete per-batch curves with a logarithmic throughput axis |
+| `*.evaluator.log`, `checks.json` | External evaluation and exact equality of four cost strings with zero open/incomplete nets |
+| `measurement.json`, `worker.log`, `host-memory.log`, `gpu-memory.csv` | Measurement configuration, execution log and memory observations |
+
+`summary.md/json` in the same directory records aggregate throughput, quality,
+inputs, source/binary hashes and commands. Aggregate throughput uses total nets
+divided by summed batch time, rather than averaging per-batch ratios.
+
+Each arm writes a real L-shape routing output and runs the external evaluator
+on it. The output is deleted before the next arm, with only one temporary
+`.out` at a time under the repository's build directory. Scores are for the
+L-shape result before FLT rerouting. The unoptimized arm is the original
+scalar algorithm in the same framework, not a separate InstantGR2 executable.
+
+Regenerate this dataset's table and plot from the same result directory,
+without rerunning routing:
+
+```bash
+python3 script/run-fig10.py --case nvdla --plot-only --output-dir results/fig10
+```
+
+## Figure 11: prefix memory-access microbenchmark
+
+Build and measure the three L-shape prefix variants:
+
+```bash
+python3 script/run-fig11.py --nvcc "$NVCC" \
+  --case nvdla \
+  --data-dir ../ISPD24_tmp --output-dir results/fig11
+```
+
+`--case` is required. Files go directly into `results/fig11/<case>/` by default.
+CUDA and Matplotlib are required; OptiX is not.
+The script builds `grotor_prefix_access_benchmark` and `grotor_evaluator` in `build/fig11/sm_89/`.
+Use `--no-build` to reuse them. For a small smoke test:
+
+```bash
+python3 script/run-fig11.py --no-build --case mempool_tile \
+  --output-dir results/fig11-smoke
+```
+
+The command accepts the same `--data-dir`, single-value `--case`, `--output-dir`,
+`--gpu`, `--cuda-arch`, `--nvcc`, `--jobs`, `--no-build` and `--clean-results`
+options as Figure 10. Existing result directories are preserved unless
+`--clean-results` is given.
+
+Each plotted value is **prefix update writes + wire-cost query reads** for
+that batch. All three variants use the same CPU batch plan (sparsity `1`),
+RSMT topology and warp-per-DAG solver, starting with identical demand:
+
+- **Original:** full cost updates, a full conventional prefix scan, and two
+  endpoint reads per interval query.
+- **BIT:** incremental cost/dirty-node updates; independently sum both endpoint
+  prefixes in the BIT and subtract.
+- **BIT & Pruning:** identical BIT updates; stop both endpoint traversals at
+  their common ancestor to omit their shared prefix.
+
+The two direct-query BIT methods are retained as `bit_range_unpruned` and
+`bit_range_pruned` in `src/experiments/prefix_queries.cuh`. Both experimental
+arms use full BIT storage and skip dense prefix-cache generation. The normal
+router currently generates that cache after its BIT updates and queries the
+cache; Figure 11 is a separate direct-query ablation. Profiling is controlled by the CMake option `GROTOR_BUILD_PREFIX_ACCESS_BENCHMARK` (default
+`OFF`). The script enables this option to build the standalone Figure 11
+worker. Only the Figure 11 worker/tests receive the private compile definition
+`GROTOR_PREFIX_ACCESS_COUNTS=1`; `GRotor`, InstantGR2 and Figure 10 do not.
+
+Inside this profiling build, the warp-uniform child-segment query is executed
+by lane 0 and broadcast with a shuffle. It performs one query rather than 32
+identical lane queries. Other layer-specific queries remain individually
+counted. No totals are divided or capped. The unprofiled solver retains its
+existing implementation, with no added counters, branches or shuffles.
+
+Counts are logical element loads/stores, not bytes, cache misses or physical
+DRAM transactions. Repeated endpoint loads and stored zero-sentinel reads
+count. Shared-memory operations, input cost arrays, dirty metadata, counter
+traffic and demand-prefix scans do not. BIT maintenance reads are included in
+the detailed CSV as a separate diagnostic, outside the requested sum.
+Initialization writes in batch 0 are included; every batch remains in the
+CSV and plot. Instrumented runtimes are not performance measurements.
+
+Files in the selected result directory:
+
+| File | Contents |
+|---|---|
+| `accesses.csv`, `accesses.md` | Three total-count columns: `original,bit,bit_pruning`; first data row is execution batch 0 |
+| `batch-accesses.csv` | Batch/net/node counts, plan hash, common query count, all three totals, and separate query reads/update writes/maintenance reads |
+| `original.csv`, `bit.csv`, `bit-pruning.csv` | Raw per-batch counters for each actual variant |
+| `figure11.pdf`, `figure11.svg`, `figure11.png` | Three measured curves with a linear count axis starting at zero |
+| `*.evaluator.log`, `measurement.json`, `checks.json` | External quality results, configuration and identical query/update-workload checks |
+| `worker.log`, `host-memory.log`, `gpu-memory.csv` | Worker log and memory observations |
+
+`summary.md/json` records aggregate counts, exact commands, quality, inputs
+and source/executable hashes. Each variant writes a real L-shape-only routing output
+and invokes the evaluator; all four costs must match with zero open/incomplete
+nets. Outputs are deleted before the next variant. At most one temporary
+`.out` exists under the repository's build directory.
+
+Regenerate this dataset's table and figure without routing or GPU work:
+
+```bash
+python3 script/run-fig11.py --case nvdla --plot-only --output-dir results/fig11
+```
+
+The independent query check covers all intervals, including equal endpoints,
+in non-power-of-two tracks and strided storage, validating both values and
+exact read counts against integer-cost and popcount oracles. A second GPU
+check requires the profiled warp solver to match the scalar oracle's query
+calls/read counts as well as exact costs, paths and demand:
+
+```bash
+cmake --build build/fig11/sm_89 \
+  --target grotor_prefix_query_check grotor_prefix_dag_check --parallel 2
+ctest --test-dir build/fig11/sm_89 \
+  -R 'prefix_queries|prefix_dag_broadcast' --output-on-failure
+```
+
+## Figure 12: cumulative routing ablation
+
+Run the four configurations with a CPU-batching baseline:
+
+```bash
+python3 script/run-fig12.py --case nvdla --nvcc "$NVCC" \
+  --optix-root "$OPTIX_ROOT_DIR" \
+  --data-dir ../ISPD24_tmp --output-dir results/fig12
+```
+
+Select exactly one dataset with required `--case`. The default result directory
+is `results/fig12/<case>/`. The `tera_cluster` family is excluded. CUDA, OptiX
+SDK headers and Matplotlib are required.
+
+The script builds four independent Release executables under
+`build/fig12/sm_89/`, with compile-time switches isolated from normal GRotor:
+
+| Legend | Enabled optimizations | Batching |
+|---|---|---|
+| `Original` | Full cost/prefix updates; thread-per-DAG L-shape; global-depth FLT kernels | CPU |
+| `+BIT` | Incremental cost updates and BIT prefix maintenance | CPU |
+| `+Schedule` | Previous features plus warp-centric L-shape and block-centric FLT | CPU |
+| `+RT-Core` | Previous features plus standard L-shape / cached FLT RT-Core batching | RT-Core |
+
+These are **cumulative** configurations. Common explicit-memory storage,
+compact FLT GPU assembly, bounded staging and output overlap are retained in
+all configurations. Figure 11 access counters are disabled in every ablation.
+
+Reuse the compiled executables for a smaller test:
+
+```bash
+python3 script/run-fig12.py --no-build \
+  --case mempool_tile --output-dir results/fig12-smoke
+```
+
+Command format:
+
+```text
+python3 script/run-fig12.py
+    --case CASE [--data-dir INPUT_DIR]
+    [--output-dir RESULTS_DIR] [--gpu INDEX] [--cuda-arch ARCH]
+    [--nvcc COMPILER] [--optix-root SDK_DIR] [--jobs N]
+    [--no-build] [--clean-results] [--validate-batches]
+```
+
+`--validate-batches` additionally compares RT-Core lists with CPU lists,
+outside measured intervals. Leave it off for performance runs. Existing
+results are preserved; use `--clean-results` to replace only the selected
+result directory.
+
+Each algorithm's time is `batching_ms + dag_ms`. L-shape and FLT both use one
+continuous synchronized DAG interval. All four configurations are measured
+independently. `speedup` divides Original time by the current total;
+`incremental_speedup` divides the preceding configuration's time by the
+current total. The plot uses the cumulative `speedup`, with Original at `1x`.
+RT-Core retains the established scoped batching timers; algorithm totals
+exclude earlier topology/geometry preparation, output and evaluation.
+The generated summary describes the full timing boundaries.
+
+Generated files:
+
+| File | Contents |
+|---|---|
+| `figure12.pdf`, `figure12.svg`, `figure12.png` | One linear-axis chart for the selected dataset: L-shape and FLT groups, each with four ablation bars |
+| `runtime.csv` | Every variant's batching, DAG and total milliseconds; cumulative, adjacent-step and DAG-only speedups |
+| `speedup.csv` | One row per dataset/algorithm, with `original,plus_bit,plus_schedule,plus_rtcore` columns |
+| `summary.md`, `summary.json` | Configuration table, runtime tables, evaluator quality, exact commands and provenance hashes |
+| `<variant>.routing.log`, `<variant>.evaluator.log` | Actual routing and external evaluator logs for each configuration |
+| `<variant>.host-memory.log`, `<variant>.gpu-memory.csv` | CPU RSS and device-wide GPU memory observations |
+
+Every variant writes a real complete routing output and invokes the external
+evaluator. All four decimal costs must match with zero open/incomplete nets.
+Each temporary output is deleted before the next run; no `.out` is retained.
+
+Regenerate this dataset's tables and chart from saved, hash-checked logs:
+
+```bash
+python3 script/run-fig12.py --case nvdla --plot-only --output-dir results/fig12
+```
+
+Validate the global-depth FLT baseline against independent scalar kernels,
+including exact costs, paths and demand with resident and streamed inputs:
+
+```bash
+cmake --build build/fig12/sm_89 --target grotor_global_depth_check --parallel 2
+ctest --test-dir build/fig12/sm_89 -R '^global_depth_scheduler$' --output-on-failure
+```
+
+## Optional correctness checks
+
+Check exact CPU batch lists on NVDLA, in addition to evaluator scores:
+
+```bash
+python3 script/benchmark_grotor_system.py --no-build --validate-batches \
+  --cases nvdla --output-dir results/GRotor-batch-check
+```
+
+Run reporting checks without a GPU:
+
+```bash
+python3 -m unittest discover -s script/tests -p 'test_*.py'
+```
+
+Build and run GPU cost, assembly and DAG scheduling checks separately from
+performance measurements:
+
+```bash
+cmake -S . -B build/GRotor-rtcore/sm_89 \
+  -DGROTOR_BUILD_COST_TESTS=ON \
+  -DGROTOR_BUILD_FLT_TESTS=ON \
+  -DGROTOR_BUILD_DAG_TESTS=ON
+cmake --build build/GRotor-rtcore/sm_89 --parallel 2
+ctest --test-dir build/GRotor-rtcore/sm_89 \
+  -R 'cost_bit_updates|flt_workspace|dag_scheduling' --output-on-failure
+```
+
+See [baseline/README.md](baseline/README.md) for the InstantGR2 source version,
+local modifications and publication reference, and [NOTICE.md](NOTICE.md) for
+third-party licenses.
