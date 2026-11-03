@@ -44,6 +44,10 @@ __device__ void update_single_wcost_ispd24(const RoutingDeviceView& view, int id
     wcost[idx] = incremental_of_cost(view, l, x, y, 1);
     if(dir == 0 && x < X - 1) wcost[idx] += unit_length_wire_cost * x_edge_len[x];
     if(dir == 1 && y < Y - 1) wcost[idx] += unit_length_wire_cost * y_edge_len[y];
+#ifdef GROTOR_GGR_ROUTING
+    // Integer DP edges must remain nonnegative and below its finite sentinel.
+    wcost[idx] = float(int64_t(fminf(fmaxf(wcost[idx], 0.f), 1.e7f)));
+#endif
 }
 
 __global__ void update_wcost_cuda_ispd24(RoutingDeviceView view) {

@@ -46,8 +46,7 @@ void multithreaded_processing(RouterState& state, vector<int> &nets2route) {
     if (failure) std::rethrow_exception(failure);
 }
 
-void Lshape_route_detour_wrap(RouterState& state, vector<int>& nets2route) {
-    const double phase_start = elapsed_time();
+void prepare_detour_topology(RouterState& state, vector<int>& nets2route) {
     if (nets2route.empty()) return;
     auto& nets = state.nets;
     auto& view = state.device;
@@ -72,10 +71,18 @@ void Lshape_route_detour_wrap(RouterState& state, vector<int>& nets2route) {
     state.host.release(packing.congestionView_ysum_cpu);
     printf("TOPOLOGY_TIMING stage=flt elapsed_ms=%.6f geometry_fused=%d\n",
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - topology_start).count(), int(state.rtcore_batching));
+}
+
+void route_prepared_topology(RouterState& state, vector<int>& nets2route,
+                             const char* stage, bool remove_phase_one) {
+    if (nets2route.empty()) return;
+    auto& nets = state.nets;
+    auto& view = state.device;
     vector<vector<int>> batches;
     if (state.rtcore_batching) {
 #ifdef GROTOR_ENABLE_RTCORE
-        grotor::batching::report_stage("flt", "cached", state, nets2route.size());
+        const char* batch_stage = std::string(stage) == "detour" ? "flt" : stage;
+        grotor::batching::report_stage(batch_stage, "cached", state, nets2route.size());
         auto batch_run = grotor::batching::generate_batches_rtcore_cached(state, nets2route, 300000);
         batches = grotor::batching::finish(state, nets2route, 300000, std::move(batch_run));
 #else
@@ -108,8 +115,10 @@ void Lshape_route_detour_wrap(RouterState& state, vector<int>& nets2route) {
         }
         for (const auto& batch : plans.batches) {
             workspace.assemble(state.flt_topology, plans, batch, view);
-            graph::commit_wire_demand<<<BLOCK_NUM(batch.nets), THREAD_NUM>>>(view, batch.nets, 0, ++state.global_timestamp, -1, 0);
-            graph::commit_via_demand<<<BLOCK_NUM(batch.nets), THREAD_NUM>>>(view, batch.nets, 0, state.global_timestamp, -1, 0);
+            if (remove_phase_one) {
+                graph::commit_wire_demand<<<BLOCK_NUM(batch.nets), THREAD_NUM>>>(view, batch.nets, 0, ++state.global_timestamp, -1, 0);
+                graph::commit_via_demand<<<BLOCK_NUM(batch.nets), THREAD_NUM>>>(view, batch.nets, 0, state.global_timestamp, -1, 0);
+            }
             ++state.global_timestamp;
             graph::refresh_cost(state);
             precompute_cost_edge<<<BLOCK_NUM(batch.edges * 9), THREAD_NUM>>>(view, state.flt, batch.edges);
@@ -125,10 +134,17 @@ void Lshape_route_detour_wrap(RouterState& state, vector<int>& nets2route) {
             grotor::cuda_check(cudaGetLastError(), "FLT batch launch");
         }
         const auto interval = timer.stop();
-        printf("DAG_TIMING stage=detour batch_index=-1 start_us=%lld end_us=%lld elapsed_ms=%.6f nets=%zu batches=%zu\n",
-            interval.start_us, interval.end_us, (interval.end_us - interval.start_us) / 1000.0, nets2route.size(), plans.batches.size());
+        printf("DAG_TIMING stage=%s batch_index=-1 start_us=%lld end_us=%lld elapsed_ms=%.6f nets=%zu batches=%zu\n",
+            stage, interval.start_us, interval.end_us, (interval.end_us - interval.start_us) / 1000.0, nets2route.size(), plans.batches.size());
         state.flt_topology.clear();
     } // Release all execution storage before reporting the complete FLT phase.
+}
+
+void Lshape_route_detour_wrap(RouterState& state, vector<int>& nets2route) {
+    const double phase_start = elapsed_time();
+    if (nets2route.empty()) return;
+    prepare_detour_topology(state, nets2route);
+    route_prepared_topology(state, nets2route, "detour", true);
     DAG_time = elapsed_time() - phase_start;
 }
 

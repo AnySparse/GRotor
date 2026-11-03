@@ -6,6 +6,7 @@
 /data/
 *.out
 *.out.gz
+*.guide
 *.log
 *.ptx
 __pycache__/
@@ -13,3 +14,5 @@ __pycache__/
 
 # Build the evaluator from source instead of tracking its bundled executable.
 /baseline/InstantGR2/run/evaluator
+/baseline/cu-gr-2/build/
+/baseline/cu-gr-2/run/

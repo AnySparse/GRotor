@@ -1,4 +1,10 @@
 #include "pipeline.hpp"
+#ifdef GROTOR_CUGR2_ROUTING
+#include "pipeline_cugr2.hpp"
+#endif
+#ifdef GROTOR_GGR_ROUTING
+#include "pipeline_ggr.hpp"
+#endif
 
 #include <filesystem>
 #include <future>
@@ -97,7 +103,13 @@ int main(int argc, char** argv) {
             state.profile_stages = profile_stages;
             state.rtcore_batching = rtcore_batching;
             state.validate_rtcore_batches = validate_rtcore;
+#if defined(GROTOR_GGR_ROUTING)
+            grotor::route_ggr(state);
+#elif defined(GROTOR_CUGR2_ROUTING)
+            grotor::route_cugr2(state);
+#else
             grotor::route(state);
+#endif
         } // All host/device workspaces are released before exit.
         const int close_status = fclose(out_file);
         out_file = nullptr;

@@ -198,6 +198,121 @@ To replace a previously generated table directory, add `--clean-results`.
 The input report must be outside the output directory. The new summary records
 the source report path/hash and identifies the measurements as reused.
 
+## Table 3: CUGR2 comparison
+
+Compare CUGR2's CPU L-shape, detour and sparse-maze algorithms with GRotor's
+CUGR2 routing pipeline on one dataset:
+
+```bash
+python3 script/compare_cugr2.py \
+  --case mempool_tile \
+  --nvcc "$NVCC" \
+  --optix-root "$OPTIX_ROOT_DIR"
+```
+
+The script builds the CPU baseline, `grotor_cugr2` and
+`grotor_evaluator`, then runs both routers sequentially. CUGR2 requires Boost
+system, filesystem and program_options development libraries. Its retained
+LEF/DEF parser libraries target Linux x86-64. To build explicitly:
+
+```bash
+cmake -S baseline/cu-gr-2/src -B build/CUGR2 -DCMAKE_BUILD_TYPE=Release
+cmake --build build/CUGR2 --target route --parallel 2
+cmake -S . -B build/GRotor-cugr2/sm_89 \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CUDA_COMPILER="$NVCC" \
+  -DCMAKE_CUDA_ARCHITECTURES=89 \
+  -DGROTOR_ENABLE_RTCORE=ON \
+  -DGROTOR_BUILD_CUGR2_ROUTER=ON \
+  -DOPTIX_ROOT_DIR="$OPTIX_ROOT_DIR"
+cmake --build build/GRotor-cugr2/sm_89 \
+  --target grotor_cugr2 grotor_evaluator --parallel 2
+```
+
+Reuse these binaries and validate RT-Core batch lists against CPU batching:
+
+```bash
+python3 script/compare_cugr2.py \
+  --case nvdla --no-build --validate-batches
+```
+
+Command format:
+
+```text
+python3 script/compare_cugr2.py --case CASE
+  [--data-dir ../ISPD24_tmp]
+  [--def-dir ../ISPD24_def/def]
+  [--lef ../ISPD24_def/lef/Nangate.lef]
+  [--def-file PATH] [--threads 8] [--cpu-log PATH | --reuse-cpu SUMMARY_JSON]
+  [--cpu-timeout 3600] [--gpu-timeout 3600]
+  [--gpu 0] [--cuda-arch 89] [--nvcc PATH] [--optix-root PATH]
+  [--jobs 2] [--no-build] [--validate-batches] [--clean-results] [--report-only]
+```
+
+CUGR2 reads LEF/DEF; GRotor reads the corresponding `.cap/.net` pair.
+`mempool_cluster` maps to `cluster.def`; other cases use `<case>.def`.
+Pass `--def-file` for another filename mapping. The input mapping does not
+select routing algorithms: all datasets run the same three stages. Each
+stage reports both task counts, and speedups require nonzero counts within
+a factor of ten. Exact evaluator score equality is not required.
+
+Reports are written to `results/CUGR2/<case>/`:
+
+| File | Contents |
+|---|---|
+| `summary.md` | Three-stage runtime, speedup, task counts and quality tables |
+| `runtime.csv` | CPU runtime, GRotor batching/DAG components, speedups, workload ratios and excluded diagnostics |
+| `table3.csv` | Compact Table 3 rows in seconds, with speedups and both task counts |
+| `quality.csv` | GRotor ISPD24 evaluator costs and connectivity results |
+| `summary.json` | Commands, source/input/binary hashes, timing data and native CUGR2 statistics |
+| `cugr2.routing.log`, `grotor.routing.log` | Actual router output and process wall time/peak host RSS |
+| `grotor.evaluator.log`, `gpu-memory.csv` | Actual output evaluation and sampled device memory |
+
+GRotor writes a routing output and invokes the evaluator before deleting it.
+CUGR2's guide is deleted after its run. Routing files are not retained.
+Use `--clean-results` to replace a previous report for the same dataset.
+Use `--report-only --case CASE` to regenerate tables from hash-verified saved
+logs without rerunning either router.
+
+CUGR2 time sums per-net solver and result-commit regions; maze includes sparse
+search and the subsequent pattern-routing DP. GRotor time for all three
+algorithms is measured RT-Core batching plus one continuous GPU
+batch-execution/update interval. The GPU interval includes topology uploads,
+GPU batch assembly, cost/BIT updates, DAG solving and demand commits.
+Maze CPU search/topology preparation, quality checks and restoration are
+excluded from this comparison total. Its full phase wall interval is retained
+as `grotor_maze_phase_ms` for diagnostics; batching + DAG + CPU search +
+`grotor_maze_other_ms` equals that diagnostic interval.
+A bounded device checkpoint and deterministic internal-cost reduction protect
+the previous result: worsening candidates restore the previous routes and
+demand. Acceptance is recorded separately from the comparison runtime.
+The acceptance objective is the router's internal cost; official quality
+scores still come only from evaluating the actual routing output.
+These component times exclude some setup and I/O; process wall times remain
+in the logs. CUGR2 native quality uses its LEF/DEF resource model and is not
+an ISPD24 evaluator score. Hardware, inputs and timing scopes differ from the
+published table, so current measurements are not expected to match its
+printed numbers. Timed-out CPU stages remain incomplete and have no speedup.
+For an expensive CPU run that already has a saved log, `--cpu-log PATH`
+explicitly imports its measurements while still rerunning GRotor and the
+evaluator. Imported measurements are labeled as archived; legacy logs do not
+prove source/input/binary identity. A previously skipped CPU maze remains
+incomplete, with its planned net count shown separately and no speedup.
+
+To rerun GRotor after a code change without repeating a long CPU run, use a
+saved summary. Input, CPU-source, binary and log fingerprints must match:
+
+```bash
+python3 script/compare_cugr2.py --case mempool_group --no-build \
+  --reuse-cpu results/CUGR2/mempool_group/summary.json --clean-results
+```
+
+The CPU record is retained in `build/CUGR2/cpu-cache/` and labeled as reused;
+GRotor and its external evaluator run again. For sparse-maze storage and
+checkpoint checks, configure with `-DGROTOR_BUILD_CUGR2_TESTS=ON`, build
+`grotor_cugr2_check`, and run
+`ctest --test-dir build/GRotor-cugr2/sm_89 -R cugr2_components --output-on-failure`.
+
 ## Figure 7: blocker ray-count microbenchmark
 
 Run one L-shape dataset and produce its paired count table and curve:
@@ -545,3 +660,78 @@ ctest --test-dir build/GRotor-rtcore/sm_89 \
 See [baseline/README.md](baseline/README.md) for the InstantGR2 source version,
 local modifications and publication reference, and [NOTICE.md](NOTICE.md) for
 third-party licenses.
+
+## GGR Z-shape comparison (Table 3)
+
+This experiment runs one Z-shape stage. Native GGR reads LEF/DEF; GRotor reads
+CAP/NET and uses RT-Core RSMT batching with disjoint-bounding-box refinement,
+cooperative Z-shape DP, BIT maintenance and incremental cost updates. Both
+net-task counts are included in the comparison because the input models differ.
+
+GGR additionally requires CMake 3.22+, CUDA-enabled PyTorch, Python development
+headers, Bison, Flex and zlib development headers. The bundled LEF/DEF static
+libraries target Linux x86-64. The tested Python environment is Python 3.10
+with PyTorch 2.2.0+cu121. Use that same Python interpreter for the build and run.
+
+Build and compare one dataset:
+
+```bash
+python3 script/compare_ggr.py --case mempool_tile \
+  --input-dir ../ISPD24_tmp \
+  --def-dir ../ISPD24_def/def \
+  --lef ../ISPD24_def/lef/Nangate.lef \
+  --optix-root "$OPTIX_ROOT_DIR" --nvcc "$NVCC"
+```
+
+Subsequent runs can reuse the build. Repeated runs compare evaluator scores,
+reusing and deleting the same temporary routing output:
+
+```bash
+python3 script/compare_ggr.py --case nvdla --no-build \
+  --clean-results --validate-batches --repeat 2
+```
+
+Command format:
+
+```text
+python3 script/compare_ggr.py --case CASE
+    [--input-dir DIR] [--def-dir DIR] [--lef FILE]
+    [--results-dir DIR] [--optix-root SDK_DIR] [--nvcc COMPILER]
+    [--cuda-arch ARCH] [--jobs N] [--threads N] [--timeout SECONDS]
+    [--no-build] [--clean-results] [--validate-batches] [--repeat N]
+    [--reuse-native SUMMARY_JSON]
+```
+
+Cases are `ariane133_51`, `ariane133_68`, `nvdla`, `bsg_chip`, `mempool_tile`
+and `mempool_group`; `mempool_cluster` is excluded. Relative paths resolve
+from the caller's directory. Builds go to `build/GGR` and
+`build/GRotor-ggr/sm_<ARCH>`. Results go to `results/GGR/<case>` by default:
+
+- `runtime.csv`: batching, routing DAG and total runtime comparisons/speedups.
+- `table3.csv`: total-time comparison with net and batch counts.
+- `quality.csv`: actual GRotor evaluator scores for each run.
+- `ggr.log`, `grotor.log`, `grotor.evaluate.log`: native, optimized and evaluator logs.
+- `summary.md`, `summary.json`: readable tables and input/source/binary fingerprints.
+
+Total time is batching plus routing DAG time. GGR's inherited routing metric
+sums cost/prefix update and DP/commit GPU times, excluding CPU preparation and
+dense map clearing. GRotor measures its entire GPU batch loop with one pair of
+synchronized timestamps, including prepared-input transfers, incremental
+cost/BIT updates, node-map resets, DP, route conversion and demand commits.
+GRotor batching includes coloring, result collection and bounding-box refinement;
+OptiX scene construction and CPU topology encoding are outside the two reported
+intervals. Full process wall times and peak host RSS remain in the logs.
+
+GGR's native guides and cost model differ from CAP/NET; no common quality score
+or byte-identical routing is claimed. GRotor writes an actual `.out`, runs the
+evaluator and requires zero open/incomplete nets. The adapter retains its
+deterministic promotion of congested wire segments to upper layers and merges
+duplicate tree paths before output. This CPU postprocessing is logged separately
+and excluded from the GPU timing. No Detour or Maze stage runs. Temporary native
+guides and `.out` files are deleted before the next run; logs, CSV files and
+summaries remain.
+
+Use `--reuse-native results/GGR/<case>/summary.json` to reuse an existing native
+GGR run while testing GRotor. The script verifies native inputs, sources,
+module hashes and log timings before accepting it. This also works together
+with `--clean-results` for the same dataset directory.

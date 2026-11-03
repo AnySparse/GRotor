@@ -42,7 +42,6 @@ __global__ void mark_overflow_nets(RoutingDeviceView view) {
         net_routes = routes + pin_acc_num[net_id] * ROUTE_PER_PIN;
     }
     else{
-        assert(0);
         net_routes = routes_phase2 + pin_acc_num_phase2[net_id] * ROUTE_PER_PIN_PHASE2;
     }
     // int *net_routes = routes + pin_acc_num[net_id] * ROUTE_PER_PIN;
