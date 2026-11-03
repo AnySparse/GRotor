@@ -18,8 +18,7 @@ void process_net(RouterState& state, int thread_idx, vector<int> &nets2route, in
             break;
         }
         nets[nets2route[netId]].generate_detours_reconstruct(state, builder, congestionView_cpu, congestionView_xsum_cpu, congestionView_ysum_cpu, false, is_show);
-        if (state.rtcore_batching)
-            state.rtcore_geometry.emit(netId, thread_idx, nets[nets2route[netId]], state.device.Y, true);
+        grotor::batching::emit_geometry(state, netId, thread_idx, nets[nets2route[netId]], true);
         state.flt_topology.emit(netId, thread_idx, builder);
     }
 }
@@ -62,9 +61,7 @@ void prepare_detour_topology(RouterState& state, vector<int>& nets2route) {
     const auto topology_start = std::chrono::steady_clock::now();
     for (int id : nets2route) if (nets[id].rsmt.empty()) nets[id].construct_rsmt(state);
     state.flt_topology.begin(nets2route, nets.size(), 8);
-    if (state.rtcore_batching)
-        state.rtcore_geometry.begin(nets2route, nets.size(), 8,
-            {state.rtcore_z_gap, state.rtcore_margin, state.rtcore_coplanar, state.rtcore_compact_points});
+    grotor::batching::prepare_geometry(state, nets2route, 8);
     multithreaded_processing(state, nets2route);
     state.host.release(packing.congestionView_cpu);
     state.host.release(packing.congestionView_xsum_cpu);

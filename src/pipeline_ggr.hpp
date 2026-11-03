@@ -15,9 +15,7 @@ inline void route_ggr(cudb::RouterState& state) {
     std::vector<int> order(state.nets.size());
     std::iota(order.begin(), order.end(), 0);
     printf("ROUTING_STAGE_BEGIN stage=zshape nets=%zu\n", order.size());
-    if (state.rtcore_batching)
-        state.rtcore_geometry.begin(order, order.size(), 8,
-            {state.rtcore_z_gap, state.rtcore_margin, state.rtcore_coplanar, state.rtcore_compact_points});
+    grotor::batching::prepare_geometry(state, order, 8);
     #pragma omp parallel for num_threads(8)
     for (int i = 0; i < order.size(); ++i) {
         state.nets[i].construct_rsmt(state, false);
@@ -26,7 +24,7 @@ inline void route_ggr(cudb::RouterState& state) {
 #ifdef _OPENMP
             lane = omp_get_thread_num();
 #endif
-            state.rtcore_geometry.emit(i, lane, state.nets[i], view.Y);
+            grotor::batching::emit_geometry(state, i, lane, state.nets[i]);
         }
     }
     std::sort(order.begin(), order.end(), [&](int a, int b) {
@@ -69,7 +67,7 @@ inline void route_ggr(cudb::RouterState& state) {
     // Free the OptiX scene before allocating routing scratch.
     workspace.reset();
 #endif
-    state.rtcore_geometry.clear();
+    grotor::batching::release_geometry(state);
 
     struct Batch { size_t points, gbpoints, offsets, ids; int count, point_count, gb_count, raw_words; };
     std::vector<Batch> spans;

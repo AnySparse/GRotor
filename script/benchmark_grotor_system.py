@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
 """Build, route and evaluate GRotor vs InstantGR2; export total, batching and DAG comparisons."""
 from pathlib import Path
+import argparse
+import sys
 from benchmark_rtcore_hybrid import main as run_benchmark
 from system_reporting import write_summary
 
 
 def main(argv=None):
+    selector = argparse.ArgumentParser(add_help=False)
+    selector.add_argument("--batching", choices=("cpu", "rtcore"), default="rtcore")
+    options, remaining = selector.parse_known_args(sys.argv[1:] if argv is None else argv)
+    if options.batching == "cpu":
+        from benchmark_grotor_cpu import main as run_cpu_benchmark
+        return run_cpu_benchmark(remaining)
+    argv = remaining
     output = None
 
     def report(folder, result):

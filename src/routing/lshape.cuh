@@ -25,9 +25,7 @@ void Lshape_route(RouterState& state, vector<int> &nets2route) {
     double Lshape_start_time = elapsed_time();
 
     const auto topology_start = std::chrono::steady_clock::now();
-    if (state.rtcore_batching)
-        state.rtcore_geometry.begin(nets2route, state.nets.size(), 8,
-            {state.rtcore_z_gap, state.rtcore_margin, state.rtcore_coplanar, state.rtcore_compact_points});
+    grotor::batching::prepare_geometry(state, nets2route, 8);
     if(LOG) printf("[%5.1f] FLUTE", elapsed_time()); cerr << endl;
     #pragma omp parallel for num_threads(8)
     for(int i = 0; i < nets2route.size(); i++) {
@@ -38,7 +36,7 @@ void Lshape_route(RouterState& state, vector<int> &nets2route) {
 #ifdef _OPENMP
             lane = omp_get_thread_num();
 #endif
-            state.rtcore_geometry.emit(i, lane, nets[nets2route[i]], state.device.Y);
+            grotor::batching::emit_geometry(state, i, lane, nets[nets2route[i]]);
         }
     }
     if(LOG) printf("[%5.1f] FLUTE END", elapsed_time()); cerr << endl;

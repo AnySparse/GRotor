@@ -8,9 +8,10 @@ tables, with speedups for both algorithms. Reports and logs are in English.
 
 Use Linux with:
 
-- An NVIDIA RTX GPU and a driver compatible with the installed CUDA toolkit.
+- An NVIDIA CUDA GPU and a driver compatible with the installed CUDA toolkit.
+  RT-Core batching additionally requires a supported RTX GPU.
 - CUDA `nvcc`, a compatible C++17 host compiler, and CMake 3.18 or newer.
-- NVIDIA OptiX SDK headers, Python 3.9 or newer, `nvidia-smi`, and GNU time at
+- NVIDIA OptiX SDK headers for RT-Core builds; Python 3.9 or newer, `nvidia-smi`, and GNU time at
   `/usr/bin/time`. The routing comparison uses only the Python standard library;
   the Figure 7, Figure 10 and Figure 11 plots additionally require Matplotlib.
 
@@ -26,6 +27,82 @@ Provide matching `<case>.cap` and `<case>.net` files in the input directory,
 for example `../ISPD24_tmp/mempool_tile.cap` and
 `../ISPD24_tmp/mempool_tile.net`. The default input directory is `../ISPD24_tmp`.
 Relative input and result paths are resolved from the repository root.
+
+## CUDA-only builds and CPU batching (A100/H100)
+
+Use this configuration when RT-Core hardware or the OptiX SDK is unavailable.
+Routing still runs on the GPU with warp/block scheduling, BIT and incremental
+cost updates; only batch generation runs on the CPU. No OptiX package, RT-Core
+geometry buffers or RT-Core PTX programs are required. CMake presets require
+CMake 3.21 or newer; manual configuration continues to support CMake 3.18+.
+
+| Preset | CUDA architecture | RT-Core | Build directory |
+|---|---:|---|---|
+| `cuda` | 89 | Off | `build/GRotor-cuda/sm_89` |
+| `a100` | 80 | Off | `build/GRotor-cuda/sm_80` |
+| `h100` | 90 | Off | `build/GRotor-cuda/sm_90` |
+| `rtx4090` | 89 | On | `build/GRotor-rtcore/sm_89` |
+
+For A100, from the repository root:
+
+```bash
+export CUDACXX=/path/to/cuda/bin/nvcc
+cmake --preset a100
+cmake --build --preset a100
+python3 script/benchmark_grotor_system.py --batching cpu --cuda-arch 80 \
+  --no-build --cases mempool_tile nvdla --repeats 2 \
+  --output-dir results/GRotor-a100
+```
+
+For H100, replace the preset with `h100`, the architecture with `90`, and the
+result directory with `results/GRotor-h100`. For the local RTX 4090 without
+RT-Core support compiled in, use preset `cuda` and architecture `89`.
+Keep separate build directories when switching architecture or RT-Core support.
+
+The test can also configure and build automatically:
+
+```bash
+python3 script/benchmark_grotor_system.py --batching cpu --cuda-arch 80 \
+  --nvcc "$CUDACXX" --cases mempool_tile nvdla --repeats 2 \
+  --output-dir results/GRotor-a100 --clean-results
+```
+
+Without presets, the essential configuration is:
+
+```bash
+cmake -S . -B build/GRotor-cuda/sm_80 -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CUDA_COMPILER="$CUDACXX" -DCMAKE_CUDA_ARCHITECTURES=80 \
+  -DGROTOR_ENABLE_RTCORE=OFF -DGROTOR_FULL_COST_REFERENCE=OFF
+cmake --build build/GRotor-cuda/sm_80 \
+  --target GRotor instantgr2_reference grotor_evaluator --parallel 2
+```
+
+CPU-mode test options include `--cases CASE [CASE ...]`, `--data-dir DIR`,
+`--cuda-arch ARCH`, `--nvcc COMPILER`, `--jobs N`, `--repeats N`, `--no-build`,
+`--output-dir DIR` and `--clean-results`. By default it runs the six cases through
+`mempool_group`, excluding `mempool_cluster`. It respects the existing
+`CUDA_VISIBLE_DEVICES` setting, including a scheduler's allocation; optional
+`--gpu INDEX` explicitly overrides that setting with one GPU index.
+
+Both routers use CPU batching with sparsity 1. Each dataset runs InstantGR2
+once and GRotor twice by default. Every run writes an actual routing file,
+invokes the evaluator, requires identical wirelength/via/overflow/total cost
+strings and zero open/incomplete nets, then deletes the file. No routing
+reference or compressed output is retained.
+
+The report contains `runtime.csv`, `batching.csv`, `dag.csv`, `totals.csv`,
+`quality.csv`, `summary.md`, `summary.json`, and per-run router/evaluator logs.
+Each stage total includes its actual CPU batching time plus routing DAG time.
+GRotor times one continuous batch-loop interval; InstantGR2 retains its FLT
+GPU-suffix accumulation. Input, source and executable hashes, exact commands,
+hardware details and process wall times are included in `summary.json`.
+
+The CUDA-only path is validated locally on RTX 4090. The A100/H100 configurations
+are cross-compiled locally; hardware validation and multi-GPU execution remain
+separate follow-up work. These
+presets and the current runner select one GPU; they do not implement multi-GPU
+routing. The RT-Core comparison below remains available with `--batching rtcore`
+(the default mode of the system test script).
 
 ## Compile
 

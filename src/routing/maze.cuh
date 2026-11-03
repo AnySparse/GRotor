@@ -120,9 +120,7 @@ inline double prepare_topology(cudb::RouterState& state, std::vector<int>& ids) 
     const MazeCostView cost(state.device, state.device.demand);
     const SparseMazeRouter router(state.device.X, state.device.Y, state.device.L, 10);
     state.flt_topology.begin(ids, state.nets.size(), 8);
-    if (state.rtcore_batching)
-        state.rtcore_geometry.begin(ids, state.nets.size(), 8,
-            {state.rtcore_z_gap, state.rtcore_margin, state.rtcore_coplanar, state.rtcore_compact_points});
+    grotor::batching::prepare_geometry(state, ids, 8);
     std::atomic<size_t> next{0};
     std::exception_ptr failure;
     std::mutex failure_mutex;
@@ -137,8 +135,7 @@ inline double prepare_topology(cudb::RouterState& state, std::vector<int>& ids) 
                     throw std::runtime_error("Sparse maze search failed for net " + std::to_string(ids[slot]));
                 const auto dag = tree_dag(net);
                 state.flt_topology.emit(slot, lane, dag);
-                if (state.rtcore_batching)
-                    state.rtcore_geometry.emit(slot, lane, net, state.device.Y, true);
+                grotor::batching::emit_geometry(state, slot, lane, net, true);
             }
         } catch (...) {
             std::lock_guard<std::mutex> lock(failure_mutex);

@@ -1,0 +1,94 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "cuda",
+      "displayName": "CUDA routing with CPU batching",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/GRotor-cuda/sm_89",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "GROTOR_ENABLE_RTCORE": "OFF",
+        "GROTOR_FULL_COST_REFERENCE": "OFF",
+        "GROTOR_BUILD_ROUTING_ABLATION": "OFF",
+        "GROTOR_BUILD_CUGR2_ROUTER": "OFF",
+        "GROTOR_BUILD_GGR_ROUTER": "OFF",
+        "CMAKE_CUDA_ARCHITECTURES": "89"
+      }
+    },
+    {
+      "name": "a100",
+      "displayName": "A100 CUDA routing with CPU batching",
+      "inherits": "cuda",
+      "binaryDir": "${sourceDir}/build/GRotor-cuda/sm_80",
+      "cacheVariables": {
+        "CMAKE_CUDA_ARCHITECTURES": "80"
+      }
+    },
+    {
+      "name": "h100",
+      "displayName": "H100 CUDA routing with CPU batching",
+      "inherits": "cuda",
+      "binaryDir": "${sourceDir}/build/GRotor-cuda/sm_90",
+      "cacheVariables": {
+        "CMAKE_CUDA_ARCHITECTURES": "90"
+      }
+    },
+    {
+      "name": "rtx4090",
+      "displayName": "RTX 4090 routing with RT-Core batching available",
+      "inherits": "cuda",
+      "binaryDir": "${sourceDir}/build/GRotor-rtcore/sm_89",
+      "cacheVariables": {
+        "GROTOR_ENABLE_RTCORE": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "cuda",
+      "configurePreset": "cuda",
+      "jobs": 2,
+      "targets": [
+        "GRotor",
+        "instantgr2_reference",
+        "grotor_evaluator"
+      ]
+    },
+    {
+      "name": "a100",
+      "configurePreset": "a100",
+      "jobs": 2,
+      "targets": [
+        "GRotor",
+        "instantgr2_reference",
+        "grotor_evaluator"
+      ]
+    },
+    {
+      "name": "h100",
+      "configurePreset": "h100",
+      "jobs": 2,
+      "targets": [
+        "GRotor",
+        "instantgr2_reference",
+        "grotor_evaluator"
+      ]
+    },
+    {
+      "name": "rtx4090",
+      "configurePreset": "rtx4090",
+      "jobs": 2,
+      "targets": [
+        "GRotor",
+        "instantgr2_reference",
+        "grotor_evaluator"
+      ]
+    }
+  ]
+}

@@ -8,15 +8,17 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-add_executable(GRotor src/main.cu)
-target_include_directories(GRotor PRIVATE include src third_party)
-set_target_properties(GRotor PROPERTIES CXX_STANDARD 17 CUDA_STANDARD 17
-                      CXX_STANDARD_REQUIRED YES CUDA_STANDARD_REQUIRED YES)
+add_library(grotor_options INTERFACE)
+target_include_directories(grotor_options INTERFACE include src third_party)
 # Preserve floating-point semantics; keep fast math disabled.
-target_compile_options(GRotor PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-O3;-UNDEBUG>)
-target_compile_definitions(GRotor PRIVATE
+target_compile_options(grotor_options INTERFACE $<$<COMPILE_LANGUAGE:CUDA>:-O3;-UNDEBUG>)
+target_compile_definitions(grotor_options INTERFACE
     G_ROTOR_RESOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/resources/flute")
 
+add_executable(GRotor src/main.cu)
+target_link_libraries(GRotor PRIVATE grotor_options)
+set_target_properties(GRotor PROPERTIES CXX_STANDARD 17 CUDA_STANDARD 17
+                      CXX_STANDARD_REQUIRED YES CUDA_STANDARD_REQUIRED YES)
 option(GROTOR_FULL_COST_REFERENCE "Use full cost updates/scans for validation" OFF)
 if(GROTOR_FULL_COST_REFERENCE)
     target_compile_definitions(GRotor PRIVATE GROTOR_FULL_COST_REFERENCE=1)
@@ -117,13 +119,14 @@ if(GROTOR_ENABLE_RTCORE)
         DEPENDS grotor_rtcore_cached_ptx $<TARGET_OBJECTS:grotor_rtcore_cached_ptx>
         COMMAND_EXPAND_LISTS)
     add_custom_target(grotor_rtcore_cached_programs DEPENDS "${GROTOR_RTCORE_CACHED_PTX}")
-    add_dependencies(GRotor grotor_rtcore_cached_programs)
-    add_dependencies(GRotor grotor_rtcore_programs)
-    target_include_directories(GRotor PRIVATE ${OPTIX_INCLUDE_DIR})
-    target_link_libraries(GRotor PRIVATE CUDA::cuda_driver CUDA::cudart ${CMAKE_DL_LIBS})
-    target_compile_definitions(GRotor PRIVATE GROTOR_ENABLE_RTCORE=1
+    add_library(grotor_rtcore INTERFACE)
+    add_dependencies(grotor_rtcore grotor_rtcore_cached_programs grotor_rtcore_programs)
+    target_include_directories(grotor_rtcore INTERFACE ${OPTIX_INCLUDE_DIR})
+    target_link_libraries(grotor_rtcore INTERFACE CUDA::cuda_driver CUDA::cudart ${CMAKE_DL_LIBS})
+    target_compile_definitions(grotor_rtcore INTERFACE GROTOR_ENABLE_RTCORE=1
         GROTOR_RTCORE_PTX_PATH="${GROTOR_RTCORE_PTX}"
         GROTOR_RTCORE_CACHED_PTX_PATH="${GROTOR_RTCORE_CACHED_PTX}")
+    target_link_libraries(GRotor PRIVATE grotor_rtcore)
     option(GROTOR_BUILD_RTCORE_RAY_BENCHMARK "Build synchronous blocker ablation" OFF)
     if(GROTOR_BUILD_RTCORE_RAY_BENCHMARK)
         add_library(grotor_rtcore_sync_ptx OBJECT src/batching/rtcore/synchronous_programs.cu)

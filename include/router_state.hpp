@@ -1,7 +1,9 @@
 #pragma once
 #include "input.hpp"
 #include "cuda_memory.hpp"
+#ifdef GROTOR_ENABLE_RTCORE
 #include "rtcore_geometry.hpp"
+#endif
 #include "flt_topology.hpp"
 #include <mutex>
 #include <stack>
@@ -119,13 +121,15 @@ struct RouterState {
     bool costs_initialized = false;
     int batch_sparsity_override = 1;
     bool rtcore_batching = false;
+#ifdef GROTOR_ENABLE_RTCORE
     grotor::rtcore::PreparedGeometry rtcore_geometry;
     float rtcore_z_gap = 0x1p-16f;
     float rtcore_margin = .1f;
     bool rtcore_coplanar = false;
     bool rtcore_compact_points = true;
-    bool validate_rtcore_batches = false;
     std::string rtcore_ptx;
+#endif
+    bool validate_rtcore_batches = false;
     int global_timestamp = 0;
     vector<net> nets;
     vector<vector<net>> tmp_nets;
