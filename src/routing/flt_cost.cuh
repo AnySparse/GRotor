@@ -47,11 +47,11 @@ __device__ void unpackCostAndNodeId(unsigned long long packed, double* cost, int
 
 constexpr unsigned long long init_cost_with_road = 7208259049189261824;
 
-__global__ void precompute_cost_edge(RoutingDeviceView view, FltDeviceView flt, int par_sum) {
+__global__ void precompute_cost_edge(const GROTOR_GRID_CONSTANT RoutingDeviceView view, FltDeviceView flt, int par_sum) {
     auto& DIR = view.DIR;
     auto& X = view.X;
     auto& Y = view.Y;
-    auto& vcost = view.vcost;
+    const auto vcost = cudb::via_costs(view);
     auto& cost_edges = flt.cost_edges;
     auto& best_change = flt.best_change;
     auto& nodes = flt.nodes;

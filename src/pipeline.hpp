@@ -55,6 +55,19 @@ inline void route(cudb::RouterState& state) {
     state.download_routes(false);
     double download_ms = milliseconds(start);
 
+    if (state.stop_after_lshape) {
+        // Publish phase-one routes before any congestion classification,
+        // rip-up, FLT topology construction or second-phase allocation.
+        graph::finish_nets(state, all_nets);
+        output_task = start_output();
+        cuda_check(cudaDeviceSynchronize(), "finish L-shape routing");
+        cuda_check(cudaGetLastError(), "L-shape routing kernels");
+        state.release_workspaces();
+        wait_output(output_task);
+        printf("ROUTING_STOP stage=lshape flt_executed=0\n");
+        return;
+    }
+
     start = Clock::now();
     if (state.nets.size() > 5000000) mode = 1;
     if (state.nets.size() > 20000000) mode = 2;
@@ -91,7 +104,7 @@ inline void route(cudb::RouterState& state) {
             vector<vector<cudb::net>>().swap(state.tmp_nets);
             return std::chrono::duration<double, std::milli>(Clock::now() - begin).count();
         });
-    Lshape_route_detour::Lshape_route_detour_wrap(state, overflow_nets.first);
+    Lshape_route_detour::route_detour(state, overflow_nets.first);
     if (LOG) graph::report_score(state);
     start = Clock::now();
     state.download_routes(true);

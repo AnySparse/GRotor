@@ -9,6 +9,13 @@ inline void initialize_incremental_cost(RouterState& state) {
     auto& view = state.device;
     const size_t cells = size_t(view.L) * view.X * view.Y;
     const size_t bytes = ((cells + 31) / 32) * sizeof(unsigned int);
+#ifdef GROTOR_DENSE_PRESUM
+    // Legacy multi-GPU policy: dirty cost cells, complete dense prefix scans.
+    state.memory.allocate(&view.dirty_wire, 2 * bytes);
+    view.dirty_via = view.dirty_wire + bytes / sizeof(unsigned int);
+    grotor::cuda_check(cudaMemset(view.dirty_wire, 0xff, 2 * bytes), "initialize dirty costs without BIT");
+    printf("COST_STORAGE cells=%zu bit_nodes=0 bit_bytes=0 dirty_bytes=%zu prefix_cache=dense\n", cells, 2 * bytes);
+#else
     state.memory.allocate(&view.dirty_wire, 3 * bytes);
     view.dirty_via = view.dirty_wire + bytes / sizeof(unsigned int);
     view.dirty_tree = view.dirty_via + bytes / sizeof(unsigned int);
@@ -30,6 +37,7 @@ inline void initialize_incremental_cost(RouterState& state) {
            cells, offsets.back(), size_t(offsets.back()) * sizeof(double), 3 * bytes);
     grotor::cuda_check(cudaFuncSetAttribute(refresh_fenwick_tracks,
         cudaFuncAttributeMaxDynamicSharedMemorySize, view.XY * (sizeof(double) + sizeof(unsigned int))), "BIT shared memory");
+#endif
 #endif
 }
 
@@ -61,7 +69,13 @@ __global__ void update_dirty_costs(RoutingDeviceView view) {
         const int bit = __ffs(bits) - 1, index = word * 32 + bit;
         bits &= bits - 1;
         if (index >= cells) continue;
-        if ((wire >> bit) & 1u) update_dirty_wire_cost(view, index);
+        if ((wire >> bit) & 1u) {
+#ifdef GROTOR_DENSE_PRESUM
+            update_single_wcost_ispd24(view, index);
+#else
+            update_dirty_wire_cost(view, index);
+#endif
+        }
         if ((via >> bit) & 1u)
             update_single_vcost_ispd24(view, index / view.X / view.Y, index / view.Y % view.X, index % view.Y);
     }
@@ -75,6 +89,14 @@ inline void refresh_cost(RouterState& state) {
         return;
     }
     const int cells = view.L * view.X * view.Y;
+#ifdef GROTOR_DENSE_PRESUM
+    if (!state.costs_initialized) update_cost(state);
+    else update_dirty_costs<<<BLOCK_NUM((cells + 31) / 32), THREAD_NUM>>>(view);
+    compute_presum<<<view.all_track_cnt, THREAD_NUM, view.XY * sizeof(double)>>>(view);
+    state.costs_initialized = true;
+    const size_t bytes = ((size_t(cells) + 31) / 32) * sizeof(unsigned int);
+    grotor::cuda_check(cudaMemsetAsync(view.dirty_wire, 0, 2 * bytes), "clear consumed dense cost dirty bits");
+#else
     if (!state.costs_initialized) {
         update_cost(state);
         refresh_fenwick_tracks<<<view.all_track_cnt, THREAD_NUM,
@@ -87,6 +109,7 @@ inline void refresh_cost(RouterState& state) {
     }
     const size_t bytes = ((size_t(cells) + 31) / 32) * sizeof(unsigned int);
     grotor::cuda_check(cudaMemsetAsync(view.dirty_wire, 0, 3 * bytes), "clear consumed cost/BIT dirty bits");
+#endif
 }
 
 } // namespace graph

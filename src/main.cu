@@ -15,12 +15,20 @@
 
 int main(int argc, char** argv) {
     try {
+#ifdef GROTOR_ENABLE_NVSHMEM
+        grotor::multi::Session multi_session(argc, argv);
+        if (multi_session.rank) {
+            multi_session.serve();
+            return EXIT_SUCCESS;
+        }
+#endif
         std::string cap, net, output, lut_dir = G_ROTOR_RESOURCE_DIR;
         int sparsity = 1;
         bool profile_stages = false;
+        bool stop_after_lshape = false;
         bool rtcore_batching = false, validate_rtcore = false;
         if (argc < 7 || argc % 2 != 1)
-            throw std::invalid_argument("Usage: GRotor -cap FILE -net FILE -out FILE [--batching cpu|rtcore] [--validate-batches 0|1] [--sparsity N] [--lut-dir DIR] [--profile-stages 0|1]");
+            throw std::invalid_argument("Usage: GRotor -cap FILE -net FILE -out FILE [--batching cpu|rtcore] [--validate-batches 0|1] [--sparsity N] [--lut-dir DIR] [--profile-stages 0|1] [--stop-after lshape|routing]");
         for (int i = 1; i < argc; i += 2) {
             const std::string option = argv[i], value = argv[i + 1];
             if (option == "-cap") cap = value;
@@ -42,6 +50,11 @@ int main(int argc, char** argv) {
                     throw std::invalid_argument("--profile-stages expects 0 or 1");
                 profile_stages = value == "1";
             }
+            else if (option == "--stop-after") {
+                if (value != "lshape" && value != "routing")
+                    throw std::invalid_argument("--stop-after expects lshape or routing");
+                stop_after_lshape = value == "lshape";
+            }
             else if (option == "--sparsity") {
                 size_t consumed = 0;
                 sparsity = std::stoi(value, &consumed);
@@ -55,6 +68,10 @@ int main(int argc, char** argv) {
             throw std::invalid_argument("--validate-batches requires --batching rtcore");
         if (rtcore_batching && sparsity != 1)
             throw std::invalid_argument("RT-Core batching requires --sparsity 1");
+#if defined(GROTOR_CUGR2_ROUTING) || defined(GROTOR_GGR_ROUTING)
+        if (stop_after_lshape)
+            throw std::invalid_argument("--stop-after lshape requires the GRotor routing pipeline");
+#endif
 #ifndef GROTOR_ENABLE_RTCORE
         if (rtcore_batching)
             throw std::invalid_argument("Rebuild with -DGROTOR_ENABLE_RTCORE=ON to use RT-Core batching");
@@ -82,10 +99,14 @@ int main(int argc, char** argv) {
             throw std::runtime_error("Cannot configure routing output");
 #ifdef GROTOR_FULL_COST_REFERENCE
         printf("GROTOR_CONFIG batching=%s cost=full prefix=full memory=explicit\n", rtcore_batching ? "rtcore" : "cpu");
+#elif defined(GROTOR_DENSE_PRESUM)
+        printf("GROTOR_CONFIG batching=%s cost=incremental prefix=dense bit=off memory=explicit\n", rtcore_batching ? "rtcore" : "cpu");
 #else
         printf("GROTOR_CONFIG batching=%s cost=incremental prefix=bit memory=explicit\n", rtcore_batching ? "rtcore" : "cpu");
 #endif
-#ifdef GROTOR_SERIAL_DAG
+#ifdef GROTOR_MULTI_LEGACY_LSHAPE
+        printf("DAG_SCHEDULING lshape=bfs-node-parallel flt=block\n");
+#elif defined(GROTOR_SERIAL_DAG)
         printf("DAG_SCHEDULING lshape=thread flt=global_depth\n");
 #else
         printf("DAG_SCHEDULING lshape=warp flt=block\n");
@@ -101,6 +122,7 @@ int main(int argc, char** argv) {
             cudb::RouterState state;
             state.batch_sparsity_override = sparsity;
             state.profile_stages = profile_stages;
+            state.stop_after_lshape = stop_after_lshape;
             state.rtcore_batching = rtcore_batching;
             state.validate_rtcore_batches = validate_rtcore;
 #if defined(GROTOR_GGR_ROUTING)
@@ -119,6 +141,12 @@ int main(int argc, char** argv) {
     } catch (const std::exception& error) {
         if (out_file) fclose(out_file);
         fprintf(stderr, "GRotor error: %s\n", error.what());
+#ifdef GROTOR_ENABLE_NVSHMEM
+        int initialized = 0, finalized = 0;
+        MPI_Initialized(&initialized);
+        if (initialized) MPI_Finalized(&finalized);
+        if (initialized && !finalized) MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+#endif
         return EXIT_FAILURE;
     }
 }

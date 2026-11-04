@@ -5,7 +5,7 @@ namespace Lshape_route {
 
 // A warp owns one tree. Layer states are parallel; child accumulation follows
 // the original reverse DFS order so floating-point sums and ties stay fixed.
-__global__ void Lshape_route_warp(RoutingDeviceView view, int net_cnt, int net_offset,
+__global__ void Lshape_route_warp(const GROTOR_GRID_CONSTANT RoutingDeviceView view, int net_cnt, int net_offset,
     const int* node_cnt_sum, const int* all_nodes, const int* all_parents,
     double* all_dist, int* all_from, int* all_ranges, int stamp) {
     constexpr unsigned mask = 0xffffffffu;
@@ -20,7 +20,7 @@ __global__ void Lshape_route_warp(RoutingDeviceView view, int net_cnt, int net_o
     double* dist = all_dist + size_t(node_cnt_sum[net_idx] - node_cnt_sum[net_offset]) * L * L;
     int* from = all_from + size_t(node_cnt_sum[net_idx] - node_cnt_sum[net_offset]) * L * L;
     int* layer_range = all_ranges + node_cnt_sum[net_idx];
-    const auto vcost = view.vcost;
+    const auto vcost = cudb::via_costs(view);
     int* net_routes = view.routes + view.pin_acc_num[view.net_ids[net_idx]] * view.ROUTE_PER_PIN;
     for (int row = lane; row < node_cnt * L; row += 32) {
         const int i = row / L, low = row % L;
@@ -156,6 +156,12 @@ __global__ void Lshape_route_warp(RoutingDeviceView view, int net_cnt, int net_o
         }
     }
     }
+#ifdef GROTOR_MULTI_GRID
+    if (!view.pre_demand) {
+        __syncwarp(mask);
+        graph::commit_net_wires<32>(view, view.net_ids[net_idx], stamp, lane);
+    }
+#endif
 }
 
 } // namespace Lshape_route

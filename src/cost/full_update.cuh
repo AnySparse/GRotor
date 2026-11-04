@@ -24,8 +24,8 @@ __device__ double incremental_of_cost(const RoutingDeviceView& view, int l, int 
     auto& X = view.X;
     auto& Y = view.Y;
     auto& unit_length_short_costs = view.unit_length_short_costs;
-    auto& capacity = view.capacity;
-    auto& demand = view.demand;
+    const auto capacity = cudb::capacity_values(view);
+    const auto demand = cudb::demand_values(view);
     int idx = l * X * Y + x * Y + y;
     return min(1e12, (of_cost_scaled(view, capacity[idx], demand[idx] + incre_demand + incre_base) 
                     - of_cost_scaled(view, capacity[idx], demand[idx] + incre_base)) * unit_length_short_costs[l]);
@@ -39,7 +39,7 @@ __device__ void update_single_wcost_ispd24(const RoutingDeviceView& view, int id
     auto& x_edge_len = view.x_edge_len;
     auto& y_edge_len = view.y_edge_len;
     auto& unit_length_wire_cost = view.unit_length_wire_cost;
-    auto& wcost = view.wcost;
+    const auto wcost = cudb::wcost_values(view);
     int l = idx / X / Y, x = idx / Y % X, y = idx % Y, dir = l & 1 ^ DIR;
     wcost[idx] = incremental_of_cost(view, l, x, y, 1);
     if(dir == 0 && x < X - 1) wcost[idx] += unit_length_wire_cost * x_edge_len[x];
@@ -60,8 +60,8 @@ __device__ void update_single_vcost_ispd24(const RoutingDeviceView& view, int l,
     auto& X = view.X;
     auto& Y = view.Y;
     auto& unit_via_cost = view.unit_via_cost;
-    auto& vcost = view.vcost;
-    auto& cross_points = view.cross_points;
+    const auto vcost = cudb::via_costs(view);
+    const auto cross_points = cudb::cross_points_values(view);
     int idx = IDX(l, x, y);
     int is_cross_point = cross_points[x * Y + y];
     if(l & 1 ^ DIR) {

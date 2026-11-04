@@ -38,7 +38,11 @@ __global__ void compare_costs(cudb::RoutingDeviceView actual, cudb::RoutingDevic
     const int l = i / actual.X / actual.Y, x = i / actual.Y % actual.X, y = i % actual.Y;
     if (__float_as_int(actual.wcost[i]) != __float_as_int(expected.wcost[i])) atomicAdd(errors, 1);
     if (__float_as_int(actual.vcost[i]) != __float_as_int(expected.vcost[i])) atomicAdd(errors + 1, 1);
+#ifdef GROTOR_DENSE_PRESUM
+    const double prefix = actual.presum[i];
+#else
     const double prefix = graph::fenwick_prefix(actual, l, x, y);
+#endif
     if (__double_as_longlong(prefix) != __double_as_longlong(expected.presum[i])) atomicAdd(errors + 2, 1);
     if (__double_as_longlong(actual.presum[i]) != __double_as_longlong(expected.presum[i])) atomicAdd(errors + 3, 1);
 }
@@ -75,6 +79,10 @@ void check(int X, int Y, int DIR) {
     reference.wcost = nullptr; reference.vcost = nullptr; reference.presum = nullptr;
     allocate(reference.wcost, cells); allocate(reference.vcost, cells); allocate(reference.presum, cells);
     graph::initialize_incremental_cost(state);
+#ifdef GROTOR_DENSE_PRESUM
+    if (v.cost_bit || v.bit_track_offsets || v.dirty_tree || v.dirty_tracks)
+        throw std::runtime_error("Dense cost mode must not allocate BIT storage");
+#endif
     grotor::cuda_check(cudaFuncSetAttribute(graph::compute_presum,
         cudaFuncAttributeMaxDynamicSharedMemorySize, v.XY * sizeof(double)), "reference prefix shared memory");
     int* error_counts = nullptr; allocate(error_counts, 4);

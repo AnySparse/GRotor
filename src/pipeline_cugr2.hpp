@@ -84,7 +84,7 @@ inline void route_cugr2(cudb::RouterState& state) {
     auto detour = graph::ripup(state, 0).first;
     reserve_reroute_storage(state, detour);
     printf("ROUTING_STAGE_BEGIN stage=detour nets=%zu\n", detour.size());
-    Lshape_route_detour::Lshape_route_detour_wrap(state, detour);
+    Lshape_route_detour::route_detour(state, detour);
     printf("ROUTING_STAGE_END stage=detour\n");
 
     refresh_congestion(state);

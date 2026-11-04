@@ -88,9 +88,19 @@ void route_prepared_topology(RouterState& state, vector<int>& nets2route,
     } else batches = generate_batches_cpu_timed(state, nets2route, 300000);
 
     const auto prepare_start = std::chrono::steady_clock::now();
+#ifdef GROTOR_ENABLE_NVSHMEM
+    // Plans executes CPU batches in reverse order. Keep the final (largest)
+    // batch's compact CPU topology until the distributed executor consumes it.
+    const int total_batches = batches.size();
+    auto final_batch = std::move(batches.front());
+    batches.erase(batches.begin());
+    if (!remove_phase_one) throw std::runtime_error("Multi-GPU FLT expects the main phase-two pipeline");
+#endif
     {
         grotor::flt::Plans plans(state.flt_topology, batches);
+#ifndef GROTOR_ENABLE_NVSHMEM
         std::vector<int>().swap(state.flt_topology.net_to_slot);
+#endif
         // Batching and its optional validation have consumed all geometric input.
         for (int id : nets2route) {
             std::vector<std::vector<int>>().swap(nets[id].rsmt);
@@ -101,7 +111,14 @@ void route_prepared_topology(RouterState& state, vector<int>& nets2route,
 #ifdef GROTOR_SERIAL_DAG
         const auto global_depths = prepare_global_depths(state.flt_topology, plans);
 #endif
+#ifdef GROTOR_ENABLE_NVSHMEM
+        if (!plans.batches.empty()) {
+        // Stream only the small batches; avoid uploading/allocating the final
+        // batch's large topology and workspace a second time on rank zero.
+        grotor::flt::Workspace workspace(state.flt, plans, 0);
+#else
         grotor::flt::Workspace workspace(state.flt, plans);
+#endif
         printf("FLT_PREPARATION elapsed_ms=%.6f batches=%zu\n",
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - prepare_start).count(), plans.batches.size());
         RoutingDagTimer timer;
@@ -133,11 +150,19 @@ void route_prepared_topology(RouterState& state, vector<int>& nets2route,
         const auto interval = timer.stop();
         printf("DAG_TIMING stage=%s batch_index=-1 start_us=%lld end_us=%lld elapsed_ms=%.6f nets=%zu batches=%zu\n",
             stage, interval.start_us, interval.end_us, (interval.end_us - interval.start_us) / 1000.0, nets2route.size(), plans.batches.size());
+#ifdef GROTOR_ENABLE_NVSHMEM
+        }
+#else
         state.flt_topology.clear();
+#endif
     } // Release all execution storage before reporting the complete FLT phase.
+#ifdef GROTOR_ENABLE_NVSHMEM
+    grotor::multi::session->flt_batch(state, state.flt_topology, final_batch, total_batches - 1, total_batches);
+    state.flt_topology.clear();
+#endif
 }
 
-void Lshape_route_detour_wrap(RouterState& state, vector<int>& nets2route) {
+void route_detour(RouterState& state, vector<int>& nets2route) {
     const double phase_start = elapsed_time();
     if (nets2route.empty()) return;
     prepare_detour_topology(state, nets2route);

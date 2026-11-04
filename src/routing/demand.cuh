@@ -5,8 +5,50 @@
 
 namespace graph {
 
+#ifdef GROTOR_MULTI_GRID
+// Cooperative segment commits mirror the legacy NVSHMEM executor: lanes walk
+// a wire together, rather than one thread serializing an arbitrarily long net.
+// DP reads an immutable cost snapshot, so wire commits may follow each net's
+// traceback. A global barrier still separates all wires from all vias.
+template<int Group> __device__ __forceinline__ void commit_net_wires(
+    const RoutingDeviceView& view, int net_id, int stamp, int member, int K = 1) {
+    const int X = view.X, Y = view.Y;
+    const bool second = view.ripup_flag[net_id] != 0;
+    const int* routes = second ? view.routes_phase2 + size_t(view.pin_acc_num_phase2[net_id]) * view.ROUTE_PER_PIN_PHASE2
+                               : view.routes + size_t(view.pin_acc_num[net_id]) * view.ROUTE_PER_PIN;
+    const auto demand = cudb::demand_values(view);
+    const auto timestamps = cudb::timestamp_values(view);
+    double length = 0;
+    const int end = routes[0];
+    for (int i = 1; i < end; i += 2) {
+        const int a = routes[i], b = routes[i + 1], layer = a / (X * Y);
+        if (layer != b / (X * Y)) continue;
+        const int x0 = a / Y % X, y0 = a % Y, x1 = b / Y % X, y1 = b % Y;
+        assert(x0 == x1 || y0 == y1);
+        const bool vertical = x0 == x1;
+        const int low = vertical ? min(y0, y1) : min(x0, x1);
+        const int high = vertical ? max(y0, y1) : max(x0, x1);
+        for (int pos = low + member; pos < high; pos += Group) {
+            const int index = layer * X * Y + (vertical ? x0 * Y + pos : pos * Y + y0);
+            atomicAdd(demand + index, float(K));
+            mark_cost_dirty(view, index);
+            timestamps[index] = stamp;
+            length += vertical ? view.y_edge_len[pos] : view.x_edge_len[pos];
+        }
+        if (!member) { timestamps[a] = stamp; timestamps[b] = stamp; }
+    }
+    for (int d = 16; d; d >>= 1) length += __shfl_down_sync(0xffffffffu, length, d);
+    if (!(member & 31)) atomicAdd(&view.statistics->total_wirelength, length * K);
+}
+
+__global__ void commit_partition_wires(const GROTOR_GRID_CONSTANT RoutingDeviceView view, int count, int stamp, int K) {
+    for (int slot = blockIdx.x; slot < count; slot += gridDim.x)
+        commit_net_wires<128>(view, view.net_ids[slot], stamp, threadIdx.x, K);
+}
+#endif
+
 __device__ __forceinline__ void add_demand(const RoutingDeviceView& view, int index, float value) {
-    atomicAdd(view.demand + index, value);
+    atomicAdd(cudb::demand_values(view) + index, value);
     mark_cost_dirty(view, index);
 }
 
@@ -17,6 +59,8 @@ __device__ void atomic_add_unit_demand_wire_segment(const RoutingDeviceView& vie
     auto& timestamp = view.timestamp;
     auto& pre_demand = view.pre_demand;
     assert(minx == maxx || miny == maxy);
+    // Distributed execution commits explicit segments after all solves finish.
+    if (!pre_demand) return;
 
     atomicAdd(pre_demand + IDX(l, minx, miny), K);
     if(minx == maxx) {
@@ -83,7 +127,7 @@ void batch_wire_update(RouterState& state, int stamp) {
     grotor::cuda_check(cudaMemsetAsync(pre_demand, 0, sizeof(int) * L * X * Y), "cudaMemset");
 }
 
-__global__ void commit_wire_demand(RoutingDeviceView view, int net_cnt, int net_offset, int stamp, int K = 1, int need_work_dir = -1) {
+__global__ void commit_wire_demand(const GROTOR_GRID_CONSTANT RoutingDeviceView view, int net_cnt, int net_offset, int stamp, int K = 1, int need_work_dir = -1) {
     auto& ROUTE_PER_PIN = view.ROUTE_PER_PIN;
     auto& ROUTE_PER_PIN_PHASE2 = view.ROUTE_PER_PIN_PHASE2;
     auto& X = view.X;
@@ -92,9 +136,9 @@ __global__ void commit_wire_demand(RoutingDeviceView view, int net_cnt, int net_
     auto& y_edge_len = view.y_edge_len;
     auto& pin_acc_num = view.pin_acc_num;
     auto& pin_acc_num_phase2 = view.pin_acc_num_phase2;
-    auto& demand = view.demand;
+    const auto demand = cudb::demand_values(view);
     auto& routes = view.routes;
-    auto& timestamp = view.timestamp;
+    const auto timestamp = cudb::timestamp_values(view);
     auto& routes_phase2 = view.routes_phase2;
     auto& ripup_flag = view.ripup_flag;
     auto& net_ids = view.net_ids;
@@ -128,7 +172,7 @@ __global__ void commit_wire_demand(RoutingDeviceView view, int net_cnt, int net_
     atomicAdd(&total_wirelength, wirelength * K);
 }
 
-__global__ void commit_via_demand(RoutingDeviceView view, int net_cnt, int net_offset, int stamp, int K = 1, int need_work_dir = -1) {
+__global__ void commit_via_demand(const GROTOR_GRID_CONSTANT RoutingDeviceView view, int net_cnt, int net_offset, int stamp, int K = 1, int need_work_dir = -1) {
     auto& ROUTE_PER_PIN = view.ROUTE_PER_PIN;
     auto& ROUTE_PER_PIN_PHASE2 = view.ROUTE_PER_PIN_PHASE2;
     auto& DIR = view.DIR;
@@ -136,9 +180,9 @@ __global__ void commit_via_demand(RoutingDeviceView view, int net_cnt, int net_o
     auto& Y = view.Y;
     auto& pin_acc_num = view.pin_acc_num;
     auto& pin_acc_num_phase2 = view.pin_acc_num_phase2;
-    auto& demand = view.demand;
+    const auto demand = cudb::demand_values(view);
     auto& routes = view.routes;
-    auto& timestamp = view.timestamp;
+    const auto timestamp = cudb::timestamp_values(view);
     auto& routes_phase2 = view.routes_phase2;
     auto& ripup_flag = view.ripup_flag;
     auto& net_ids = view.net_ids;

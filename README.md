@@ -1,5 +1,9 @@
 # GRotor
 
+For the original NVSHMEM L-shape execution policy and its one-to-many GPU
+scaling baseline, see [legacy L-shape execution](docs/legacy_lshape_execution.md).
+It is the default `GRotor_multi` L-shape path; reports default to L-shape only.
+
 Build GRotor and compare its L-shape and FLT routing runtimes and evaluator
 scores with InstantGR2. The main test produces total, batching and routing DAG
 tables, with speedups for both algorithms. Reports and logs are in English.
@@ -103,6 +107,55 @@ separate follow-up work. These
 presets and the current runner select one GPU; they do not implement multi-GPU
 routing. The RT-Core comparison below remains available with `--batching rtcore`
 (the default mode of the system test script).
+
+## NVSHMEM L-shape scaling (A100)
+
+`script/run-fig13.py` runs **L-shape only**, stops before FLT, and reports
+runtime and speedup for **the last executed L-shape batch**. All earlier
+batches still execute to establish the correct demand/cost state. Every GPU
+count, including one, uses the same original BFS node-parallel NVSHMEM
+executor: fixed 1056×256 launches, full per-PE matrices, integer demand,
+bool dirty flags, separate wire/via commits and full local presum scans.
+BIT is disabled on every batch.
+
+The multi-GPU build needs Open MPI, NCCL and NVSHMEM, including its device
+library and CUDA relocatable device code. No OptiX or PyTorch is needed.
+See [the execution/timing contract](docs/legacy_lshape_execution.md).
+
+```bash
+/home/caoweichen/env/myenv/bin/python script/run-fig13.py \
+  --nvcc /usr/local/cuda-12.2/bin/nvcc --cuda-arch 80 \
+  --mpirun /home/caoweichen/opt/openmpi/bin/mpirun \
+  --data-dir /data0/cwc/ISPD24 --cases mempool_cluster \
+  --devices 3,2,1,0 --counts 1 2 3 4 --repeats 2 \
+  --symmetric-size 25G --output-dir results/GRotor-lshape-1to4
+```
+
+The build directory is `build/GRotor-multi-legacy/sm_80`; use `--no-build`
+after building. Select currently available devices. Each N-GPU run uses the
+first N entries in `--devices`. Add `--require-idle` for a strict check that
+no other compute processes are present. Otherwise shared-device load and
+clocks are recorded in per-run `*.gpu-load.jsonl` files.
+For 1–8 GPU scaling, supply eight devices and `--counts 1 2 3 4 5 6 7 8`.
+`tera_cluster` is opt-in.
+
+The timer includes DP/traceback, commits, post-commit cost/presum updates and
+required synchronization. It excludes CPU preparation, initial distribution,
+final route/grid collection, output writing and evaluation. Reports use the
+maximum participating rank time and median across repeats. `scaling.csv`,
+`summary.json`, `quality.csv`, `fig13-scaling.{png,pdf,svg}` and
+`last-batch-runtime.{png,pdf,svg}` retain timings, validation and plots.
+
+L-shape routes are written and externally evaluated for zero open/incomplete
+nets and matching costs across GPU counts. Byte-identical outputs reuse a
+validated evaluator result after SHA-256 verification within the experiment.
+This stage-only reference is the one-GPU L-shape result. Full-pipeline
+InstantGR2 quality checks remain in `script/test_grotor_reference.py`.
+
+The detour routing entry point is `Lshape_route_detour::route_detour`.
+Running `GRotor_multi` directly without `--stop-after lshape` still executes
+the full pipeline. The ordinary `GRotor` executable keeps its own single-GPU
+solver; the scaling script always uses `GRotor_multi`, including at N=1.
 
 ## Compile
 

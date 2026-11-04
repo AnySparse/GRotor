@@ -11,17 +11,30 @@ __device__ __forceinline__ bool is_dirty(const unsigned int* bits, int index) {
     return (bits[index >> 5] >> (index & 31)) & 1u;
 }
 
+__device__ __forceinline__ void set_cost_dirty(const RoutingDeviceView& view, int index, bool via) {
+#ifdef GROTOR_MULTI_GRID
+    if (view.cost_shard_x) {
+        const int x = index / view.Y % view.X;
+        const int owner = x / view.cost_shard_x;
+        const int local = (index / (view.X * view.Y) * view.cost_shard_x + x % view.cost_shard_x) * view.Y + index % view.Y;
+        set_dirty(via ? view.peer_dirty_via[owner] : view.peer_dirty_wire[owner], local);
+        return;
+    }
+#endif
+    set_dirty(via ? view.dirty_via : view.dirty_wire, index);
+}
+
 // A changed edge affects its wire cost and both adjacent via landing costs.
 __device__ __forceinline__ void mark_cost_dirty(const RoutingDeviceView& view, int index) {
     if (!view.dirty_wire) return;
-    set_dirty(view.dirty_wire, index);
-    set_dirty(view.dirty_via, index);
+    set_cost_dirty(view, index, false);
+    set_cost_dirty(view, index, true);
     const int layer = index / (view.X * view.Y);
     const bool along_y = (layer & 1) ^ view.DIR;
     const int position = along_y ? index % view.Y : index / view.Y % view.X;
     const int length = along_y ? view.Y : view.X;
     if (position + 1 < length)
-        set_dirty(view.dirty_via, index + (along_y ? 1 : view.Y));
+        set_cost_dirty(view, index + (along_y ? 1 : view.Y), true);
 }
 
 // Mark a contiguous interval with one atomic per bitmap word.
@@ -38,6 +51,13 @@ __device__ __forceinline__ void mark_dirty_range(unsigned int* bits, int first, 
 __device__ __forceinline__ void mark_wire_span(const RoutingDeviceView& view,
                                                int layer, int x0, int x1, int y0, int y1) {
     if (!view.dirty_wire || (x0 == x1 && y0 == y1)) return;
+#ifdef GROTOR_MULTI_GRID
+    if (view.cost_shard_x) {
+        for (int x = min(x0, x1); x < max(x0, x1); ++x) mark_cost_dirty(view, (layer * view.X + x) * view.Y + y0);
+        for (int y = min(y0, y1); y < max(y0, y1); ++y) mark_cost_dirty(view, (layer * view.X + x0) * view.Y + y);
+        return;
+    }
+#endif
     const bool along_y = (layer & 1) ^ view.DIR;
     const int base = layer * view.X * view.Y;
     if (along_y && x0 == x1) {

@@ -10,6 +10,9 @@
 #include "routing/demand.cuh"
 
 #include "routing/lshape_warp.cuh"
+#ifdef GROTOR_ENABLE_NVSHMEM
+#include "multigpu/runtime.cuh"
+#endif
 #ifdef GROTOR_SERIAL_DAG
 #include "routing/lshape_thread.cuh"
 #endif
@@ -96,8 +99,22 @@ void Lshape_route(RouterState& state, vector<int> &nets2route) {
         assert((node_cnt_sum_cpu[id + 1] - node_cnt_sum_cpu[id]) == graph.back().size());
     }
     if(LOG) printf("[%5.1f] DFS END\n", elapsed_time());
+#ifdef GROTOR_MULTI_LEGACY_LSHAPE
+    // Do not allocate/use the optimized warp-per-layer executor on N=1.
+    // All L-shape batches run through the same original distributed path.
+    grotor::multi::session->lshape_all(state,batches,nets2route,node_cnt_sum_cpu,nodes_cpu,par_nodes_cpu);
+    state.host.release(node_cnt_sum_cpu);
+    state.host.release(nodes_cpu);
+    state.host.release(par_nodes_cpu);
+    Lshape_time=elapsed_time()-Lshape_start_time;
+    printf("Lshape END.   "); print_GPU_memory_usage();
+    return;
+#endif
     int max_num_nodes = 0;
     for(int i = 0; i < batches.size(); i++)
+#ifdef GROTOR_ENABLE_NVSHMEM
+        if (i + 1 < batches.size())
+#endif
         max_num_nodes = max(max_num_nodes, node_cnt_sum_cpu[batch_cnt_sum[i + 1]] - node_cnt_sum_cpu[batch_cnt_sum[i]]);
 
     double *dist = nullptr;
@@ -121,10 +138,24 @@ void Lshape_route(RouterState& state, vector<int> &nets2route) {
     print_GPU_memory_usage();
     
     if(LOG) printf("[%5.1f] Lshape_cuda\n", elapsed_time());
+#ifdef GROTOR_DENSE_PRESUM
+    // Legacy L-shape starts each batch with resident, current costs and
+    // charges its post-commit refresh to that batch (FLT refreshes before DP).
+    graph::refresh_cost(state);
+#endif
     RoutingDagTimer dag_timer;
      for(int i = 0; i < batches.size(); i++) {
+#ifdef GROTOR_ENABLE_NVSHMEM
+        if (i + 1 == batches.size()) {
+            grotor::multi::session->lshape(state, batches[i], node_cnt_sum_cpu + batch_cnt_sum[i],
+                nodes_cpu, par_nodes_cpu, i, batches.size());
+            continue;
+        }
+#endif
         global_timestamp++;
+#ifndef GROTOR_DENSE_PRESUM
         graph::refresh_cost(state);
+#endif
 #ifdef GROTOR_SERIAL_DAG
         Lshape_route_cuda<<<BLOCK_NUM(batches[i].size()), THREAD_NUM>>>(state.device, batches[i].size(), batch_cnt_sum[i], node_cnt_sum, nodes, par_nodes, dist, from, layer_range, global_timestamp);
 #else
@@ -132,6 +163,9 @@ void Lshape_route(RouterState& state, vector<int> &nets2route) {
 #endif
         graph::batch_wire_update(state, global_timestamp);
         graph::commit_via_demand<<<BLOCK_NUM(batches[i].size()), THREAD_NUM>>>(state.device, batches[i].size(), batch_cnt_sum[i], global_timestamp);
+#ifdef GROTOR_DENSE_PRESUM
+        graph::refresh_cost(state);
+#endif
     }
     dag_timer.finish("lshape", -1, nets2route.size(), batches.size());
     if(LOG) printf("[%5.1f] Lshape_cuda END\n", elapsed_time());

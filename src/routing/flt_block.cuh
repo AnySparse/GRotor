@@ -3,13 +3,13 @@
 
 namespace Lshape_route_detour {
 // Preserve the scalar node arithmetic and packed integer candidate ordering.
-__device__ __forceinline__ void solve_flt_node(RoutingDeviceView view, FltDeviceView flt, int node_idx) {
+__device__ __forceinline__ void solve_flt_node(const RoutingDeviceView& view, const FltDeviceView& flt, int node_idx) {
 
     auto& DIR = view.DIR;
     auto& L = view.L;
     auto& X = view.X;
     auto& Y = view.Y;
-    auto& vcost = view.vcost;
+    const auto vcost = cudb::via_costs(view);
     auto& cost_edges = flt.cost_edges;
     auto& nodes = flt.nodes;
     auto& par_nodes = flt.par_nodes;
@@ -141,7 +141,7 @@ __device__ __forceinline__ void solve_flt_node(RoutingDeviceView view, FltDevice
     }
 }
 
-__device__ __forceinline__ void trace_flt_node(RoutingDeviceView view, FltDeviceView flt, int node_id, int stamp) {
+__device__ __forceinline__ void trace_flt_node(const RoutingDeviceView& view, const FltDeviceView& flt, int node_id, int stamp) {
 
     auto& ROUTE_PER_PIN_PHASE2 = view.ROUTE_PER_PIN_PHASE2;
     auto& X = view.X;
@@ -331,7 +331,7 @@ __device__ __forceinline__ void trace_flt_node(RoutingDeviceView view, FltDevice
 }
 
 // One CTA owns a complete DAG; only CTA barriers separate its depths.
-__global__ __launch_bounds__(128) void route_flt_block(RoutingDeviceView view,
+__global__ __launch_bounds__(128) void route_flt_block(const GROTOR_GRID_CONSTANT RoutingDeviceView view,
     FltDeviceView flt, const grotor::flt::NetDescriptor* descriptors, int begin,
     const int* depth_offsets, int stamp) {
     const auto net = descriptors[begin + blockIdx.x];
@@ -349,5 +349,8 @@ __global__ __launch_bounds__(128) void route_flt_block(RoutingDeviceView view,
             trace_flt_node(view, flt, flt.depth_node[i], stamp);
         __syncthreads();
     }
+#ifdef GROTOR_MULTI_GRID
+    if (!view.pre_demand) graph::commit_net_wires<128>(view, net.net_id, stamp, threadIdx.x);
+#endif
 }
 } // namespace Lshape_route_detour
