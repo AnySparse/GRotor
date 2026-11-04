@@ -73,8 +73,9 @@ def write_summary(folder, result):
         "- Standard RT-Core: start immediately before the coloring loop; end after every round and final GPU synchronization. Parameter uploads, counter readbacks, host control, GPU work and waits inside the interval are included.",
         "- Cached: start immediately before pipeline preparation; end after all chunks, error readback and final GPU synchronization. Pipeline/SBT setup, coloring-buffer allocation/initialization, transfers and all chunk control/work inside the interval are included.",
         "- Both scopes exclude earlier geometry/ray preparation and BVH construction, and subsequent final batch-ID download, CPU batch-list assembly and cleanup. Standard RT-Core also excludes pipeline preparation and inactive warm-up.",
+        "- Large-design partitioned batching compiles/warms a shared pipeline before one continuous call interval containing bitmap initialization, geometry copies, BVH construction, all coloring work, occupancy publication and collection. L-shape uses rounds; FLT uses cached.",
         "- CPU/CUDA-Core retain their existing complete-function timers in the sparsity-1 dual baseline; its CPU plan feeds routing. These scope-specific ratios are not whole-router speedups.",
-        "- L-shape always uses standard batching; FLT always uses cached batching, independent of dataset names or sizes.",
+        "- Smaller designs use standard L-shape/cached FLT batching. Large designs use partitioned batching with bounded local-priority scenes and a prior-scene occupancy bitmap.",
         "- RT-Core milliseconds equal (end_us - start_us) / 1000 in both native logs and this table. The caller simply forwards the selected method's returned duration.",
         "- Speedup = CPU or CUDA-Core milliseconds / RT-Core milliseconds. Values below 1 indicate a slowdown; ratios are not constrained to a target.",
         "- These are single sequential runs with unlocked GPU clocks. CPU batch-list checks are enabled only when --validate-batches is supplied; the recorded configuration identifies this choice.",
@@ -94,7 +95,7 @@ def write_summary(folder, result):
     for row in dag_rows:
         lines.append(f"| {row['dataset']} | {row['algorithm']} | {row['instantgr2_dag_ms']:.3f} | {row['grotor_dag_ms']:.3f} | {row['speedup']:.2f}x |")
     lines += ["", "## Batching Plus DAG Runtime", "",
-        "Algorithm total = measured batching + measured DAG execution. InstantGR2 uses CUDA-Core batching time, with the deterministic CPU plan used for routing in dual mode. GRotor uses standard RT-Core batching for L-shape and cached RT-Core batching for FLT. These totals exclude earlier preparation and file output; complete phase and router times are separately recorded when available.", "",
+        "Algorithm total = measured batching + measured DAG execution. InstantGR2 uses CUDA-Core batching time, with the deterministic CPU plan used for routing in dual mode. GRotor uses standard L-shape/cached FLT batching or the partitioned large-design path. These totals exclude earlier preparation and file output; complete phase and router times are separately recorded when available.", "",
         "| Dataset | Algorithm | InstantGR2 batching ms | InstantGR2 total ms | GRotor batching ms | GRotor total ms | Speedup |", "|---|---|---:|---:|---:|---:|---:|"]
     for row in stage_rows:
         lines.append(f"| {row['dataset']} | {row['algorithm']} | {row['instantgr2_batch_ms']:.3f} | {row['instantgr2_total_ms']:.3f} | {row['grotor_batch_ms']:.3f} | {row['grotor_total_ms']:.3f} | {row['speedup']:.2f}x |")
@@ -188,7 +189,7 @@ def main(argv=None, *, report_writer=write_summary,
     except (OSError, ValueError, KeyError, RuntimeError) as error:
         parser.error(str(error))
     data = local_path(args.data_dir); build = ROOT / "build/GRotor-rtcore" / ("sm_" + args.cuda_arch)
-    result = dict(status="running", configuration=dict(method_policy="explicit_standard_lshape_cached_flt", geometry_build="topology_fused_2d",
+    result = dict(status="running", configuration=dict(method_policy="standard_lshape_cached_flt_partitioned_large", geometry_build="topology_fused_2d",
         sparsity=1, gpu=args.gpu, cuda_arch=args.cuda_arch, timing="contiguous_wall", sources=source_manifest(),
         validate_batches=args.validate_batches, cost_update="incremental", prefix="bit",
         dag_lshape="warp", dag_flt="block", flt_execution="contiguous",

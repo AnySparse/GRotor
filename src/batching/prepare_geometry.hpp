@@ -3,12 +3,19 @@
 
 namespace grotor::batching {
 
+#ifdef GROTOR_ENABLE_RTCORE
+inline bool partitioned(const cudb::RouterState& state, size_t count) {
+    return rtcore::needs_partitioning(state.nets.size(), count);
+}
+#endif
+
 // The CUDA-only build has no geometry types, traversal or storage.
 inline void prepare_geometry(cudb::RouterState& state, const std::vector<int>& order, int lanes) {
 #ifdef GROTOR_ENABLE_RTCORE
     if (state.rtcore_batching)
         state.rtcore_geometry.begin(order, state.nets.size(), lanes,
-            {state.rtcore_z_gap, state.rtcore_margin, state.rtcore_coplanar, state.rtcore_compact_points});
+            {state.rtcore_z_gap, state.rtcore_margin, state.rtcore_coplanar, state.rtcore_compact_points,
+             partitioned(state, order.size())});
 #endif
 }
 

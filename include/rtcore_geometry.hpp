@@ -10,9 +10,15 @@
 
 namespace grotor::rtcore {
 
+inline constexpr size_t max_priority_tasks = 16000000;
+inline bool needs_partitioning(size_t design_tasks, size_t stage_tasks) {
+    return design_tasks > max_priority_tasks || stage_tasks > max_priority_tasks;
+}
+
 struct GeometryConfig {
     float z_gap = 0x1p-16f, margin = .1f;
     bool coplanar = false, compact_points = true;
+    bool partitioned = false; // Two-dimensional input; each later scene has local priorities.
 };
 
 struct Triangle2D {
@@ -51,12 +57,13 @@ struct PreparedGeometry {
     void begin(const std::vector<int>& order, std::size_t total_nets, int lanes,
                GeometryConfig settings = {}) {
         clear();
-        if (order.size() > 16000000 || lanes < 1)
+        if (order.size() > std::size_t(std::numeric_limits<int>::max()) || lanes < 1
+            || (!settings.partitioned && order.size() > max_priority_tasks))
             throw std::invalid_argument("RT-Core topology exceeds supported priority range");
         if (!std::isfinite(settings.z_gap) || settings.z_gap < 0x1p-24f || settings.z_gap > 64.f
             || !std::isfinite(settings.margin) || settings.margin < .01f || settings.margin > .4f)
             throw std::invalid_argument("Invalid RT-Core geometry configuration");
-        if (!order.empty()) {
+        if (!order.empty() && !settings.partitioned) {
             const float z = (order.size() - 1) * settings.z_gap;
             if (!settings.coplanar && std::nextafter(z, std::numeric_limits<float>::infinity()) - z > settings.z_gap)
                 throw std::invalid_argument("RT-Core priority layers are not distinct in float coordinates");

@@ -11,11 +11,13 @@ struct CachedWorkspace {
     LaunchParams* device_params = nullptr;
     int multiprocessors = 0, max_chunk_nets = 0, max_dependency_words = 0;
     std::string ptx;
+    OptixPipeline borrowed_pipeline = nullptr;
 };
 
 inline void prepare_batches_rtcore_cached(CachedWorkspace& work, const cudb::RouterState& state,
-                           const std::vector<int>& order, int max_batch_size) {
+                           const std::vector<int>& order, int max_batch_size, const PreparedPipeline* pipeline = nullptr) {
     if (order.empty()) return;
+    if (pipeline) { pipeline->borrow(work.resources, work.sbt); work.borrowed_pipeline = pipeline->resources.pipeline; }
     work.scene = build_scene(work.resources, state, order, max_batch_size, true);
     work.max_chunk_nets = std::min(work.scene.total_nets, chunk_capacity);
     work.max_dependency_words = (work.max_chunk_nets+31)/32;
@@ -27,15 +29,15 @@ inline void prepare_batches_rtcore_cached(CachedWorkspace& work, const cudb::Rou
 }
 
 // Preserve the defined cached step: pipeline/graph initialization and all chunks.
-// The caller measures this whole function; it contains no timing operations.
-inline void generate_batches_rtcore_cached(CachedWorkspace& work) {
+// The caller measures initialization plus all chunks as one interval.
+inline void initialize_coloring(CachedWorkspace& work) {
     const int total_nets = work.scene.total_nets;
     if (!total_nets) return;
     auto& resources = work.resources;
     const auto& scene = work.scene;
     const int max_chunk_nets = work.max_chunk_nets;
     const int max_dependency_words = work.max_dependency_words;
-    work.sbt = build_pipeline(resources, work.ptx,
+    if (!work.borrowed_pipeline) work.sbt = build_pipeline(resources, work.ptx,
                                     2, "__raygen__collect_dependencies", "__anyhit__dependency_bits");
     auto& params = work.params;
     params.gas_handle = scene.handle;
@@ -56,26 +58,32 @@ inline void generate_batches_rtcore_cached(CachedWorkspace& work) {
     auto* device_params = work.device_params;
     cuda_check(cudaMemcpy(device_params, &params, sizeof(params), cudaMemcpyHostToDevice), "upload initial RT-Core parameters");
     cuda_check(cudaDeviceSynchronize(), "finish RT-Core preparation");
-    const auto& ray_offsets = scene.ray_offsets;
-    const auto& sbt = work.sbt;
-    const int multiprocessors = work.multiprocessors;
-    constexpr int block = 256;
     cuda_check(cudaMemsetAsync(params.color_error, 0, sizeof(int)), "initialize coloring status");
-    for (int begin = 0; begin < total_nets; begin += chunk_capacity) {
-        params.chunk_begin = begin;
-        params.chunk_nets = std::min(chunk_capacity, total_nets - begin);
-        params.dependency_words = (params.chunk_nets + 31) / 32;
-        params.first_ray = ray_offsets[begin];
-        const int rays = ray_offsets[begin + params.chunk_nets] - params.first_ray;
-        cuda_check(cudaMemcpy(device_params, &params, sizeof(params), cudaMemcpyHostToDevice), "upload chunk parameters");
-        cuda_check(cudaMemsetAsync(params.dependencies, 0, size_t(params.chunk_nets) * params.dependency_words * sizeof(unsigned int)), "initialize chunk dependencies");
-        cuda_check(cudaMemsetAsync(params.used_mask, 0, size_t(params.chunk_nets) * mask_words * sizeof(unsigned int)), "initialize preceding colors");
-        cuda_check(cudaMemsetAsync(params.next_net, 0, sizeof(int)), "initialize coloring work queue");
-        optix_check(optixLaunch(resources.pipeline, 0, address(device_params), sizeof(params),
-                    &sbt, rays, 1, 1), "collect RT-Core chunk dependencies");
-        const int blocks = std::min(multiprocessors * 2, (params.chunk_nets + 7) / 8);
-        color_dependency_graph<<<blocks, block>>>(params);
-    }
+}
+
+inline void color_chunk(CachedWorkspace& work, int begin, int count) {
+    auto& params = work.params;
+    params.chunk_begin = begin;
+    params.chunk_nets = count;
+    params.dependency_words = (count + 31) / 32;
+    params.first_ray = work.scene.ray_offsets[begin];
+    const int rays = work.scene.ray_offsets[begin + count] - params.first_ray;
+    cuda_check(cudaMemcpy(work.device_params, &params, sizeof(params), cudaMemcpyHostToDevice), "upload chunk parameters");
+    cuda_check(cudaMemsetAsync(params.dependencies, 0, size_t(count) * params.dependency_words * sizeof(unsigned int)), "initialize chunk dependencies");
+    cuda_check(cudaMemsetAsync(params.used_mask, 0, size_t(count) * mask_words * sizeof(unsigned int)), "initialize preceding colors");
+    cuda_check(cudaMemsetAsync(params.next_net, 0, sizeof(int)), "initialize coloring work queue");
+    optix_check(optixLaunch(work.borrowed_pipeline ? work.borrowed_pipeline : work.resources.pipeline, 0, address(work.device_params), sizeof(params),
+                &work.sbt, rays, 1, 1), "collect RT-Core chunk dependencies");
+    const int blocks = std::min(work.multiprocessors * 2, (count + 7) / 8);
+    color_dependency_graph<<<blocks, 256>>>(params);
+}
+
+inline void generate_batches_rtcore_cached(CachedWorkspace& work) {
+    if (!work.scene.total_nets) return;
+    initialize_coloring(work);
+    for (int begin = 0; begin < work.scene.total_nets; begin += work.max_chunk_nets)
+        color_chunk(work, begin, std::min(work.max_chunk_nets, work.scene.total_nets - begin));
+    auto& params = work.params;
     int error = 0;
     cuda_check(cudaMemcpy(&error, params.color_error, sizeof(int), cudaMemcpyDeviceToHost), "check dependency coloring");
     if (error) throw std::runtime_error("RT-Core cached coloring failed or exhausted its 1024-batch mask");

@@ -24,6 +24,13 @@ extern "C" __global__ void __raygen__collect_dependencies() {
     const int ray = optixLaunchParams_color.first_ray + optixGetLaunchIndex().x;
     ColorPayload local{};
     local.net = optixLaunchParams_color.ray_to_net[ray];
+    if (optixLaunchParams_color.cell_colors) {
+        const float3 origin = optixLaunchParams_color.ray_origins[ray];
+        const size_t cell = size_t(__float2int_rn(origin.x)) * optixLaunchParams_color.grid_y
+                            + __float2int_rn(origin.y);
+        for (int word = 0; word < mask_words; ++word)
+            local.mask[word] = optixLaunchParams_color.cell_colors[cell * mask_words + word];
+    }
     const auto pointer = reinterpret_cast<unsigned long long>(&local);
     unsigned int high = pointer >> 32, low = pointer;
     optixTrace(optixLaunchParams_color.gas_handle,

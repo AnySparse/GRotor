@@ -22,6 +22,9 @@ struct LaunchParams {
     int iteration;
     float ray_tmin, ray_tmax;
     unsigned int* active_ray_indices;
+    const unsigned int* cell_colors;
+    const unsigned int* full_colors;
+    int grid_y;
 };
 
 } // namespace grotor::rtcore

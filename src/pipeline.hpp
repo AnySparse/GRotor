@@ -6,6 +6,7 @@
 #include "routing/congestion.cuh"
 #include "output.hpp"
 #include <future>
+#include <malloc.h>
 
 namespace grotor {
 
@@ -35,6 +36,18 @@ inline void route(cudb::RouterState& state) {
 
     auto start = Clock::now();
     cudb::build_cuda_database(state);
+    bool bounded_preparation = false;
+#ifdef GROTOR_ENABLE_RTCORE
+    bounded_preparation = state.rtcore_batching && batching::partitioned(state, state.nets.size());
+#endif
+    if (bounded_preparation) {
+        // Capacity is already on the device; subnet records have been moved.
+        // Keep this policy in the ordinary pipeline: other algorithms may
+        // still need the original host capacity for their CPU topology work.
+        decltype(db::capacity)().swap(db::capacity);
+        decltype(state.tmp_nets)().swap(state.tmp_nets);
+        malloc_trim(0);
+    }
     graph::initialize_incremental_cost(state);
     const double setup_ms = milliseconds(start);
     auto& view = state.device;
@@ -95,6 +108,7 @@ inline void route(cudb::RouterState& state) {
     // Ready nets have no overflow subnets. Their flags and phase-one snapshot
     // remain immutable while FLT updates device routes for the other nets.
     output_task = start_output();
+    double topology_cleanup_ms = 0;
     auto topology_cleanup = std::async(std::launch::async,
         [&state, finished = std::move(overflow_nets.second)] {
             const auto begin = Clock::now();
@@ -104,19 +118,29 @@ inline void route(cudb::RouterState& state) {
             vector<vector<cudb::net>>().swap(state.tmp_nets);
             return std::chrono::duration<double, std::milli>(Clock::now() - begin).count();
         });
+    if (bounded_preparation) {
+        const auto barrier_start = Clock::now();
+        // At tera scale, retaining both completed phase-one topology/output
+        // records and phase-two builders can exceed the host RAM allocation.
+        wait_output(output_task);
+        topology_cleanup_ms = topology_cleanup.get();
+        malloc_trim(0);
+        printf("HOST_PREPARATION_BARRIER elapsed_ms=%.3f completed_topology_released=1\n", milliseconds(barrier_start));
+        fflush(stdout);
+    }
     Lshape_route_detour::route_detour(state, overflow_nets.first);
     if (LOG) graph::report_score(state);
     start = Clock::now();
     state.download_routes(true);
     download_ms += milliseconds(start);
-    wait_output(output_task);
+    if (output_task.valid()) wait_output(output_task);
     graph::finish_nets(state, overflow_nets.first);
     cuda_check(cudaDeviceSynchronize(), "finish routing");
     cuda_check(cudaGetLastError(), "routing kernels");
 
     output_task = start_output();
     start = Clock::now();
-    const double topology_cleanup_ms = topology_cleanup.get();
+    if (topology_cleanup.valid()) topology_cleanup_ms = topology_cleanup.get();
     state.release_workspaces();
     const double cleanup_ms = milliseconds(start);
     wait_output(output_task);

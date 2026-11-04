@@ -19,6 +19,22 @@ def records(flt_method="cached", requested="auto", design_nets=5000000):
 
 
 class HybridReportingTests(unittest.TestCase):
+    def test_partitioned_scope_includes_scene_construction_and_commits(self):
+        text, batches = records(flt_method="partitioned", requested="partitioned", design_nets=55315745)
+        text = text.replace("scope=pipeline_to_coloring_wall", "scope=partitioned_batch_wall")
+        self.assertEqual([r["method"] for r in parse_totals(text, batches)], ["partitioned"] * 2)
+        with self.assertRaises(RuntimeError):
+            parse_totals(text.replace("scope=partitioned_batch_wall", "scope=coloring_loop_wall", 1), batches)
+
+    def test_precompiled_partitioned_scope_remains_one_interval(self):
+        text, batches = records(flt_method="partitioned", requested="partitioned", design_nets=55315745)
+        text = text.replace("scope=pipeline_to_coloring_wall", "scope=partitioned_batch_wall")
+        text = text.replace("scope=partitioned_batch_wall", "scope=partitioned_pipeline_prebuilt_wall", 1)
+        self.assertEqual(parse_totals(text, batches)[0]["timing_scope"], "partitioned_pipeline_prebuilt_wall")
+        both = text.replace("scope=partitioned_batch_wall", "scope=partitioned_pipeline_prebuilt_wall")
+        self.assertEqual([r["timing_scope"] for r in parse_totals(both, batches)],
+                         ["partitioned_pipeline_prebuilt_wall"] * 2)
+
     def test_contiguous_times_are_forwarded_without_component_sums(self):
         text, batches = records()
         rows = parse_totals(text, batches)

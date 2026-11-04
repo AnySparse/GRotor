@@ -4,6 +4,7 @@
 #ifdef GROTOR_ENABLE_RTCORE
 #include "generate_batches_rtcore.cuh"
 #include "generate_batches_rtcore_cached.cuh"
+#include "generate_batches_rtcore_partitioned.cuh"
 #endif
 
 namespace cudb {
@@ -42,7 +43,32 @@ inline rtcore::BatchResult measure_and_collect(Workspace& work, const std::vecto
     return run;
 }
 
+inline rtcore::BatchResult generate_batches_partitioned(cudb::RouterState& state,
+        const std::vector<int>& order, int limit, bool rounds, size_t scene_nets = 1000000) {
+    const auto begin = timestamp();
+    rtcore::BatchResult run;
+    {
+        rtcore::PreparedPipeline pipeline;
+        const char* default_ptx = rounds ? GROTOR_RTCORE_PTX_PATH : GROTOR_RTCORE_CACHED_PTX_PATH;
+        pipeline.prepare(state.rtcore_ptx.empty() ? default_ptx : state.rtcore_ptx, rounds);
+        rtcore::partitioned::warm_pipeline(pipeline, rounds);
+        cuda_check(cudaDeviceSynchronize(), "before partitioned batching");
+        const auto start = timestamp();
+        run = rtcore::partitioned::generate(state, order, limit, rounds, pipeline, scene_nets);
+        cuda_check(cudaDeviceSynchronize(), "finish partitioned batching");
+        const auto end = timestamp();
+        run.start_us = start; run.end_us = end;
+        run.milliseconds = (end-start)/1000.0;
+    }
+    const auto end = timestamp();
+    run.preparation_ms = (run.start_us-begin)/1000.0;
+    run.collection_ms = (end-run.end_us)/1000.0;
+    run.call_ms = (end-begin)/1000.0;
+    return run;
+}
+
 inline rtcore::BatchResult generate_batches_rtcore(cudb::RouterState& state, const std::vector<int>& order, int limit) {
+    if (partitioned(state, order.size())) return generate_batches_partitioned(state, order, limit, true);
     const auto begin = timestamp();
     rtcore::BatchResult run;
     {
@@ -60,6 +86,7 @@ inline rtcore::BatchResult generate_batches_rtcore(cudb::RouterState& state, con
 }
 
 inline rtcore::BatchResult generate_batches_rtcore_cached(cudb::RouterState& state, const std::vector<int>& order, int limit) {
+    if (partitioned(state, order.size())) return generate_batches_partitioned(state, order, limit, false);
     const auto begin = timestamp();
     rtcore::BatchResult run;
     {

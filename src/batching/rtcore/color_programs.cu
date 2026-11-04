@@ -22,6 +22,12 @@ extern "C" __global__ void __raygen__compute_mex() {
     if (optixLaunchParams_color.is_ready[net] == 0) return;
 
     unsigned int local_mask[mask_words] = {};
+    if (optixLaunchParams_color.cell_colors) {
+        const float3 origin = optixLaunchParams_color.ray_origins[ray];
+        const size_t cell = size_t(__float2int_rn(origin.x)) * optixLaunchParams_color.grid_y + __float2int_rn(origin.y);
+        for (int word = 0; word < mask_words; ++word)
+            local_mask[word] = optixLaunchParams_color.cell_colors[cell * mask_words + word];
+    }
     unsigned int high, low;
     pack_pointer(local_mask, high, low);
     optixTrace(optixLaunchParams_color.gas_handle,

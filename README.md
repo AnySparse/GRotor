@@ -258,6 +258,39 @@ inspect `summary.json`, `summary.md` and the case logs. Completed-case rows are
 retained in the report. Run tests on an otherwise idle GPU for comparable
 performance measurements.
 
+## RT-Core batching for large designs
+
+Designs with more than 16 million routing tasks automatically use bounded
+RT-Core scenes in both routing stages. L-shape keeps the same **rounds** coloring
+core as small designs; FLT keeps **cached** dependency coloring. No dataset name,
+extra build option or command-line tuning flag is needed. Each scene contains at
+most 1 million tasks, 8 million triangles and 4 million rays, with local priorities
+to preserve float Z precision. Finished scenes publish a directed cell/color
+occupancy bitmap for subsequent scenes, then release their GPU resources. The
+bitmap uses `X * Y * 128` bytes (1024 colors), about 10.1 GiB for `tera_cluster`.
+Both stages preserve greedy task order and batch capacity by accepting a valid
+prefix and replaying the remainder when a batch becomes full. There is no CPU
+batching fallback. `--validate-batches 1` remains available for CPU batch-list
+checks.
+
+The large-design pipeline compiles and warms its shared OptiX pipeline before
+batching. Runtime is one synchronized start/end interval **outside** the complete
+batching call, never a sum of round/kernel measurements. Logs report
+`method=partitioned`, `scope=partitioned_pipeline_prebuilt_wall`, and
+`RTCORE_PARTITION_POLICY coloring=rounds|cached`. The interval includes local
+geometry copies, BVH construction, all kernels, synchronization, occupancy
+publication, collection and scene cleanup. Topology/2-D geometry generation and
+pipeline compilation/warm-up precede it; `BATCH_PREPARATION` separately records
+preparation, final cleanup and complete call time.
+
+Pin-access candidates are released after selection for all designs, since only
+selected pins remain in use. Large RT-Core designs additionally release uploaded
+host capacity and moved subnet staging, and wait for completed L-shape output and
+topology cleanup before preparing FLT. This bounds host RAM overlap; the wait is
+logged as `HOST_PREPARATION_BARRIER`. Small designs retain stage overlap. Long
+Fenwick tracks store only odd BIT nodes in shared memory, allowing tera's grid
+width to fit the GPU block limit without changing summation order.
+
 ## Generated files
 
 All results go directly into the selected directory, without date subfolders.

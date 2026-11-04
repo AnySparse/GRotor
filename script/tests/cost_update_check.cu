@@ -124,6 +124,10 @@ int main() {
         for (int dir : {0, 1}) {
             check(1, 1, dir); check(37, 65, dir); check(64, 33, dir);
             check(3511, 9, dir); check(7, 4764, dir);
+            // TeraPool track lengths and the power-of-two boundary. Compare
+            // every cost/prefix bit with full scans over 40 mutation rounds.
+            check(7, 10708, dir); check(12544, 7, dir);
+            check(7, 8191, dir); check(8192, 7, dir); check(7, 8193, dir);
         }
         printf("COST_BIT_CHECK_PASSED\n");
         return 0;

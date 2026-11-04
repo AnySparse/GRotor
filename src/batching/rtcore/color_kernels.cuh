@@ -30,7 +30,7 @@ __global__ void assign_batch_kernel(LaunchParams params) {
     if (params.batch_id[net_id] == -1 && params.is_ready[net_id] == 1) {
         int batch = -1;
         for (int i = 0; i < mask_words; ++i) {
-            const unsigned int mask = params.used_mask[net_id * mask_words + i];
+            const unsigned int mask = params.used_mask[net_id * mask_words + i] | (params.full_colors ? params.full_colors[i] : 0u);
             if (mask != 0xffffffffu) {
                 batch = i * 32 + __ffs(~mask) - 1;
                 break;

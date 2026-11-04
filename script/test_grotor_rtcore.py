@@ -125,8 +125,8 @@ def write_summary(folder, result):
              f"- Selected RT-Core timing: {result['configuration']['timing']}.",
              "- Each method measures one contiguous steady-clock interval, including host work, transfers and waits inside it; no per-round accumulation or component sums.",
              "- Standard RT-Core scope: coloring loop through GPU completion. Cached scope: pipeline preparation through coloring GPU completion.",
-             "- Geometry/BVH preparation, final batch download/assembly, CPU validation and evaluation are outside the measured intervals.",
-             "- L-shape uses standard batching; FLT uses cached batching for every design.",
+             "- For standard/cached methods, geometry/BVH preparation and final collection are excluded. Partitioned batching includes scene/BVH construction, bitmap operations, collection and cleanup. CPU validation and evaluation remain excluded.",
+             "- L-shape uses rounds and FLT uses cached; large designs partition scenes and precompile/warm a shared pipeline before the measured call.",
              "- Algorithm total = selected RT-Core batching scope + scoped DAG solving; it is not complete router wall time.",
              "- CPU validation is outside both reported algorithm times, but inside router wall time.",
              "- Memory values are device-wide 100 ms samples, not exact instantaneous allocation peaks.",
@@ -183,7 +183,7 @@ def main():
         "validate_batches": not args.no_validate_batches, "cuda_arch": args.cuda_arch,
         "timing": "contiguous_wall", "cost_update": "incremental", "prefix": "bit", "flt_execution": "contiguous", "dag_lshape": "warp", "dag_flt": "block",
         "space": "layered", "point_model": "triangle",
-        "z_gap": 2**-16, "margin": .1, "method_policy": "explicit_standard_lshape_cached_flt"}, "oracles": {}, "runs": []}
+        "z_gap": 2**-16, "margin": .1, "method_policy": "standard_lshape_cached_flt_partitioned_large"}, "oracles": {}, "runs": []}
     try:
         validate_luts()
         nvcc = shutil.which(args.nvcc)

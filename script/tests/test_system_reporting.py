@@ -35,6 +35,27 @@ def fixture():
 
 
 class SystemReportTests(unittest.TestCase):
+    def test_partitioned_tables_preserve_the_broader_scope(self):
+        result = fixture()
+        for total in result["cases"][0]["rtcore"]["totals"]:
+            total.update(method="partitioned", timing_scope="partitioned_batch_wall")
+        with tempfile.TemporaryDirectory() as directory:
+            write_summary(Path(directory), result)
+            with (Path(directory)/"batching-runtime.csv").open() as f:
+                rows = list(csv.DictReader(f))
+            self.assertEqual([r["grotor_method"] for r in rows], ["partitioned"] * 2)
+            self.assertEqual([r["grotor_timing_scope"] for r in rows], ["partitioned_batch_wall"] * 2)
+        result["cases"][0]["rtcore"]["totals"][0]["timing_scope"] = "coloring_loop_wall"
+        with self.assertRaises(ValueError):comparison_rows(result["cases"][0])
+
+    def test_prebuilt_scope_is_preserved_for_both_large_stages(self):
+        result = fixture()
+        for total in result["cases"][0]["rtcore"]["totals"]:
+            total.update(method="partitioned", timing_scope="partitioned_pipeline_prebuilt_wall")
+        rows = comparison_rows(result["cases"][0])[1]
+        self.assertEqual([r["grotor_timing_scope"] for r in rows],
+                         ["partitioned_pipeline_prebuilt_wall"] * 2)
+
     def test_csv_and_markdown_keep_components_and_totals_distinct(self):
         with tempfile.TemporaryDirectory() as directory:
             folder=Path(directory);write_summary(folder,fixture())

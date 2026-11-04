@@ -25,6 +25,9 @@ struct LaunchParams {
     int chunk_nets;
     int first_ray;
     float ray_tmin, ray_tmax;
+    const unsigned int* cell_colors;
+    const unsigned int* full_colors;
+    int grid_y;
 };
 
 } // namespace grotor::rtcore::cached

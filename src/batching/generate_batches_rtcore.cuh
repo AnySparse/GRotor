@@ -10,17 +10,19 @@ struct BatchWorkspace {
     LaunchParams params{};
     LaunchParams* device_params = nullptr;
     int* active_count = nullptr;
+    OptixPipeline borrowed_pipeline = nullptr;
 };
 
 inline void prepare_batches_rtcore(BatchWorkspace& work, const cudb::RouterState& state,
-                             const std::vector<int>& order, int max_batch_size) {
+                             const std::vector<int>& order, int max_batch_size, const PreparedPipeline* pipeline = nullptr) {
     if (order.empty()) return;
+    if (pipeline) { pipeline->borrow(work.resources, work.sbt); work.borrowed_pipeline = pipeline->resources.pipeline; }
     auto& resources = work.resources;
     work.scene = build_scene(resources, state, order, max_batch_size);
     auto& scene = work.scene;
     const int total_nets = scene.total_nets;
     const size_t ray_count = scene.rays;
-    work.sbt = build_pipeline(resources, state.rtcore_ptx.empty() ? GROTOR_RTCORE_PTX_PATH : state.rtcore_ptx,
+    if (!work.borrowed_pipeline) work.sbt = build_pipeline(resources, state.rtcore_ptx.empty() ? GROTOR_RTCORE_PTX_PATH : state.rtcore_ptx,
                                     3, "__raygen__compute_mex", "__anyhit__collect_colors");
     auto& params = work.params;
     params.gas_handle = scene.handle;
@@ -45,7 +47,7 @@ inline void prepare_batches_rtcore(BatchWorkspace& work, const cudb::RouterState
     auto* device_params = work.device_params;
     cuda_check(cudaMemcpy(device_params, &params, sizeof(params), cudaMemcpyHostToDevice), "upload initial RT-Core parameters");
     cuda_check(cudaDeviceSynchronize(), "finish RT-Core preparation");
-    report_memory("traversal_ready");
+    if (!resources.quiet) report_memory("traversal_ready");
 
     cuda_check(cudaStreamCreateWithFlags(&resources.stream, cudaStreamNonBlocking), "RT-Core stream");
     // Preload launch resources with an inactive query before the measured loop.
@@ -55,7 +57,7 @@ inline void prepare_batches_rtcore(BatchWorkspace& work, const cudb::RouterState
     cuda_check(cudaFuncGetAttributes(&attributes, fast_compact_rays_kernel), "load RT-Core compaction");
     cuda_check(cudaMemset(params.is_ready, 0, size_t(total_nets) * sizeof(int)), "inactive RT-Core warm-up");
     cuda_check(cudaDeviceSynchronize(), "complete RT-Core preparation");
-    optix_check(optixLaunch(resources.pipeline, resources.stream, address(device_params), sizeof(params), &work.sbt, 1, 1, 1), "RT-Core inactive launch");
+    optix_check(optixLaunch(work.borrowed_pipeline ? work.borrowed_pipeline : resources.pipeline, resources.stream, address(device_params), sizeof(params), &work.sbt, 1, 1, 1), "RT-Core inactive launch");
     cuda_check(cudaStreamSynchronize(resources.stream), "RT-Core inactive launch completion");
 }
 
@@ -83,7 +85,7 @@ inline void generate_batches_rtcore(BatchWorkspace& work) {
             cuda_check(cudaStreamSynchronize(resources.stream), "read RT-Core active rays");
         }
         if (!width) throw std::runtime_error("RT-Core coloring stalled");
-        optix_check(optixLaunch(resources.pipeline, resources.stream, address(device_params), sizeof(params), &sbt, width, 1, 1), "RT-Core tracing");
+        optix_check(optixLaunch(work.borrowed_pipeline ? work.borrowed_pipeline : resources.pipeline, resources.stream, address(device_params), sizeof(params), &sbt, width, 1, 1), "RT-Core tracing");
         assign_batch_kernel<<<(total_nets + block - 1) / block, block, 0, resources.stream>>>(params);
         const int previous = remaining;
         cuda_check(cudaMemcpyAsync(&remaining, params.d_unassigned_count, sizeof(int), cudaMemcpyDeviceToHost, resources.stream), "RT-Core unassigned nets");

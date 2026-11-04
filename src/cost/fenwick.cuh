@@ -113,6 +113,19 @@ __device__ __forceinline__ double fenwick_prefix(const RoutingDeviceView& view,
     return sum;
 }
 
+// Even indices are leaves and can be read directly from wcost, as in
+// fenwick_prefix. Only odd indices need shared storage. This keeps long
+// tracks within the per-block shared-memory limit without changing sums.
+inline size_t fenwick_shared_bytes(int length) {
+    return size_t(length / 2) * sizeof(double) + size_t(length) * sizeof(unsigned int);
+}
+
+__device__ __forceinline__ double shared_fenwick_value(const RoutingDeviceView& view,
+        const double* tree, int base, int stride, int i) {
+    return (i & 1) ? tree[i >> 1]
+                   : (i ? double(view.wcost[base + (i - 1) * stride]) : 0.);
+}
+
 __global__ void refresh_fenwick_tracks(RoutingDeviceView view, bool rebuild = false) {
     if (!rebuild && !view.dirty_tracks[blockIdx.x]) return;
     const int code = view.idx2track[blockIdx.x];
@@ -123,11 +136,10 @@ __global__ void refresh_fenwick_tracks(RoutingDeviceView view, bool rebuild = fa
     double* nodes = view.cost_bit + view.bit_track_offsets[blockIdx.x];
     extern __shared__ double storage[];
     double* tree = storage;
-    auto* dirty = reinterpret_cast<unsigned int*>(tree + view.XY);
+    auto* dirty = reinterpret_cast<unsigned int*>(tree + view.XY / 2);
     for (int i = threadIdx.x; i < length; i += blockDim.x) {
         const int index = base + i * stride;
-        tree[i] = rebuild ? 0. : ((i & 1) ? nodes[i >> 1]
-            : (i ? double(view.wcost[base + (i - 1) * stride]) : 0.));
+        if (i & 1) tree[i >> 1] = rebuild ? 0. : nodes[i >> 1];
         dirty[i] = rebuild || is_dirty(view.dirty_tree, index);
     }
     __syncthreads();
@@ -140,15 +152,16 @@ __global__ void refresh_fenwick_tracks(RoutingDeviceView view, bool rebuild = fa
             if (!dirty[i]) continue;
             double value = i ? double(view.wcost[base + (i - 1) * stride]) : 0.;
             for (int offset = 1; offset < width; offset <<= 1)
-                value += tree[i - offset];
-            tree[i] = value;
+                value += shared_fenwick_value(view, tree, base, stride, i - offset);
+            if (i & 1) tree[i >> 1] = value;
         }
         __syncthreads();
     }
     for (int i = threadIdx.x; i < length; i += blockDim.x) {
-        if ((i & 1) && dirty[i]) nodes[i >> 1] = tree[i];
+        if ((i & 1) && dirty[i]) nodes[i >> 1] = tree[i >> 1];
         double sum = 0.;
-        for (int j = i; j >= 0; j = (j & (j + 1)) - 1) sum += tree[j];
+        for (int j = i; j >= 0; j = (j & (j + 1)) - 1)
+            sum += shared_fenwick_value(view, tree, base, stride, j);
         view.presum[base + i * stride] = sum;
     }
     if (!threadIdx.x) view.dirty_tracks[blockIdx.x] = 0;

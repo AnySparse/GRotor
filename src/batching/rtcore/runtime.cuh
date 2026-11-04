@@ -24,6 +24,7 @@ inline CUdeviceptr address(const void* pointer) { return reinterpret_cast<CUdevi
 struct Resources {
     DeviceMemory memory;
     OptixDeviceContext context = nullptr;
+    bool owns_context = true, quiet = false;
     OptixModule module = nullptr;
     OptixProgramGroup groups[3]{};
     OptixPipeline pipeline = nullptr;
@@ -36,7 +37,7 @@ struct Resources {
         for (auto group : groups) if (group) optixProgramGroupDestroy(group);
         if (module) optixModuleDestroy(module);
         memory.clear();
-        if (context) optixDeviceContextDestroy(context);
+        if (context && owns_context) optixDeviceContextDestroy(context);
     }
 
     template <class T> T* allocate(size_t count) {
@@ -136,9 +137,12 @@ inline Scene build_scene(Resources& resources, const cudb::RouterState& state,
     cuda_check(cudaDeviceSynchronize(), "before RT-Core preparation");
     static const bool initialized = [] { optix_check(optixInit(), "optixInit"); return true; }();
     (void)initialized;
-    optix_check(optixDeviceContextCreate(0, nullptr, &resources.context), "create OptiX context");
+    if (!resources.context)
+        optix_check(optixDeviceContextCreate(0, nullptr, &resources.context), "create OptiX context");
     const auto settings = geometry.config;
     const int total_nets = static_cast<int>(order.size());
+    if (order.size() > max_priority_tasks || settings.partitioned)
+        throw std::invalid_argument("Partitioned geometry must be split into bounded local RT-Core scenes");
     size_t triangles = 0, rays = 0, input_points = 0;
     std::vector<GeometryPlacement> placements(order.size());
     std::vector<int> offsets(need_offsets ? order.size()+1 : 0);
@@ -162,10 +166,10 @@ inline Scene build_scene(Resources& resources, const cudb::RouterState& state,
     if (triangles > 536870912 / 3 || rays > size_t(std::numeric_limits<int>::max()-255))
         throw std::runtime_error("RT-Core geometry exceeds supported vertex/ray count");
     if (need_offsets) offsets[total_nets] = static_cast<int>(rays);
-    printf("RTCORE_SPACE model=%s point_model=%s z_gap=%.9g margin=%.9g\n",
+    if (!resources.quiet) printf("RTCORE_SPACE model=%s point_model=%s z_gap=%.9g margin=%.9g\n",
            settings.coplanar ? "coplanar" : "layered", settings.compact_points ? "triangle" : "cross",
            double(settings.z_gap), double(settings.margin));
-    printf("RTCORE_GEOMETRY nets=%d input_points=%zu unique_points=%zu triangles=%zu vertices=%zu fused=1\n",
+    if (!resources.quiet) printf("RTCORE_GEOMETRY nets=%d input_points=%zu unique_points=%zu triangles=%zu vertices=%zu fused=1\n",
            total_nets, input_points, rays, triangles, triangles*3);
 
     auto* device_placements = resources.upload(placements);
@@ -205,14 +209,14 @@ inline Scene build_scene(Resources& resources, const cudb::RouterState& state,
         throw std::runtime_error("RT-Core BVH build exceeds free-memory budget");
     auto* scratch = resources.allocate<unsigned char>(sizes.tempSizeInBytes);
     auto* gas = resources.allocate<unsigned char>(sizes.outputSizeInBytes);
-    report_memory("gas_build");
+    if (!resources.quiet) report_memory("gas_build");
     OptixTraversableHandle handle = 0;
     optix_check(optixAccelBuild(resources.context, 0, &options, &input, 1, address(scratch), sizes.tempSizeInBytes,
                                address(gas), sizes.outputSizeInBytes, &handle, nullptr, 0), "build triangle GAS");
     cuda_check(cudaDeviceSynchronize(), "finish BVH build before releasing inputs");
     resources.memory.release(scratch);
     resources.memory.release(vertices);
-    report_memory("build_inputs_released");
+    if (!resources.quiet) report_memory("build_inputs_released");
 
     Scene scene;
     scene.handle = handle;
@@ -295,5 +299,27 @@ inline OptixShaderBindingTable build_pipeline(Resources& resources, const std::s
 
     return sbt;
 }
+
+// A stage can prepare/JIT its immutable pipeline before the single timed call.
+// Scene workspaces borrow its context and SBT; the owner outlives all scenes.
+struct PreparedPipeline {
+    Resources resources;
+    OptixShaderBindingTable sbt{};
+    void prepare(const std::string& ptx, bool rounds) {
+        cuda_check(cudaFree(nullptr), "initialize prepared pipeline CUDA context");
+        optix_check(optixInit(), "initialize prepared pipeline");
+        optix_check(optixDeviceContextCreate(0, nullptr, &resources.context), "prepared pipeline context");
+        sbt = build_pipeline(resources, ptx, rounds ? 3 : 2,
+            rounds ? "__raygen__compute_mex" : "__raygen__collect_dependencies",
+            rounds ? "__anyhit__collect_colors" : "__anyhit__dependency_bits");
+        cuda_check(cudaDeviceSynchronize(), "prepared pipeline ready");
+    }
+    void borrow(Resources& target, OptixShaderBindingTable& target_sbt) const {
+        target.context = resources.context;
+        target.owns_context = false;
+        // Only the pipeline and SBT are borrowed. Resources must not destroy them.
+        target_sbt = sbt;
+    }
+};
 
 } // namespace grotor::rtcore

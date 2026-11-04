@@ -58,7 +58,7 @@ void Lshape_route(RouterState& state, vector<int> &nets2route) {
     vector<vector<int>> batches;
     if (state.rtcore_batching) {
 #ifdef GROTOR_ENABLE_RTCORE
-        grotor::batching::report_stage("lshape", "rounds", state, nets2route.size());
+        grotor::batching::report_stage("lshape", grotor::batching::partitioned(state, nets2route.size()) ? "partitioned" : "rounds", state, nets2route.size());
         auto batch_run = grotor::batching::generate_batches_rtcore(state, nets2route, 1000000);
         batches = grotor::batching::finish(state, nets2route, 1000000, std::move(batch_run));
 #else

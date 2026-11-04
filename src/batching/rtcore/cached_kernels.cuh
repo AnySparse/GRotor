@@ -17,6 +17,7 @@ __global__ void color_dependency_graph(LaunchParams params) {
         net = __shfl_sync(full, net, 0);
         if (net >= params.chunk_nets) return;
         masks[warp][lane] = params.used_mask[net * mask_words + lane];
+        if (params.full_colors) masks[warp][lane] |= params.full_colors[lane];
         __syncwarp(full);
         bool invalid = false;
         for (int word = lane; word < params.dependency_words; word += 32) {

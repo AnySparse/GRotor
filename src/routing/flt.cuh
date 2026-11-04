@@ -79,7 +79,7 @@ void route_prepared_topology(RouterState& state, vector<int>& nets2route,
     if (state.rtcore_batching) {
 #ifdef GROTOR_ENABLE_RTCORE
         const char* batch_stage = std::string(stage) == "detour" ? "flt" : stage;
-        grotor::batching::report_stage(batch_stage, "cached", state, nets2route.size());
+        grotor::batching::report_stage(batch_stage, grotor::batching::partitioned(state, nets2route.size()) ? "partitioned" : "cached", state, nets2route.size());
         auto batch_run = grotor::batching::generate_batches_rtcore_cached(state, nets2route, 300000);
         batches = grotor::batching::finish(state, nets2route, 300000, std::move(batch_run));
 #else

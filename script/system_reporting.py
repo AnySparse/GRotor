@@ -9,7 +9,7 @@ ALGORITHMS = (("lshape", "L-shape", "rounds"), ("detour", "FLT", "cached"))
 COSTS = ("wirelength", "via", "overflow", "total")
 RUNTIME_FIELDS = ["dataset", "algorithm", "instantgr2_batch_ms", "grotor_batch_ms", "batching_speedup",
     "instantgr2_dag_ms", "grotor_dag_ms", "dag_speedup", "instantgr2_total_ms", "grotor_total_ms", "total_speedup"]
-BATCH_FIELDS = ["dataset", "algorithm", "instantgr2_cpu_ms", "instantgr2_cuda_core_ms", "grotor_rt_core_ms",
+BATCH_FIELDS = ["dataset", "algorithm", "grotor_method", "grotor_timing_scope", "instantgr2_cpu_ms", "instantgr2_cuda_core_ms", "grotor_rt_core_ms",
     "speedup_vs_cpu", "speedup_vs_cuda_core"]
 DAG_FIELDS = ["dataset", "algorithm", "instantgr2_dag_ms", "grotor_dag_ms", "speedup"]
 TOTAL_FIELDS = ["dataset", "algorithm", "instantgr2_batch_ms", "instantgr2_dag_ms", "instantgr2_total_ms",
@@ -62,8 +62,13 @@ def comparison_rows(case):
         if cuda["nets"] != cpu["nets"] or not cpu["used_for_routing"] or cuda["used_for_routing"] or not rt["used_for_routing"]:
             raise ValueError("Expected InstantGR2 dual CPU plan and GRotor RT-Core plan")
         selected = native["totals"][index]
-        if selected["method"] != method or abs(duration(selected) - duration(rt)) > 1e-5:
+        if selected["method"] not in (method, "partitioned") or abs(duration(selected) - duration(rt)) > 1e-5:
             raise ValueError("RT-Core method or returned duration differs from the measured interval")
+        scope = "coloring_loop_wall" if method == "rounds" else "pipeline_to_coloring_wall"
+        if selected["method"] == "partitioned":
+            scope = selected.get("timing_scope")
+            if scope not in ("partitioned_batch_wall", "partitioned_pipeline_prebuilt_wall"):
+                raise ValueError("Partitioned timing must be a continuous full batching interval")
         cpu_ms, cuda_ms, rt_ms = continuous(cpu), continuous(cuda), continuous(rt)
         old_ms = continuous(old_dag) if stage == "lshape" else duration(old_dag)
         if old_ms > (old_dag["end_us"] - old_dag["start_us"]) / 1000 + 1e-5:
@@ -76,7 +81,8 @@ def comparison_rows(case):
         rows.append(dict(**identity, instantgr2_batch_ms=cuda_ms, grotor_batch_ms=rt_ms, batching_speedup=batch_ratio,
             instantgr2_dag_ms=old_ms, grotor_dag_ms=new_ms, dag_speedup=dag_ratio,
             instantgr2_total_ms=old_total, grotor_total_ms=new_total, total_speedup=total_ratio))
-        batches.append(dict(**identity, instantgr2_cpu_ms=cpu_ms, instantgr2_cuda_core_ms=cuda_ms,
+        batches.append(dict(**identity, grotor_method=selected["method"], grotor_timing_scope=scope,
+            instantgr2_cpu_ms=cpu_ms, instantgr2_cuda_core_ms=cuda_ms,
             grotor_rt_core_ms=rt_ms, speedup_vs_cpu=speedup(cpu_ms, rt_ms), speedup_vs_cuda_core=batch_ratio))
         dags.append(dict(**identity, instantgr2_dag_ms=old_ms, grotor_dag_ms=new_ms, speedup=dag_ratio))
         totals.append(dict(**identity, instantgr2_batch_ms=cuda_ms, instantgr2_dag_ms=old_ms, instantgr2_total_ms=old_total,
@@ -122,11 +128,11 @@ def write_summary(folder, result):
             writer = csv.DictWriter(stream, fields)
             writer.writeheader()
             writer.writerows(rows)
-    result["report_format"] = dict(version=1, reporter_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest())
+    result["report_format"] = dict(version=2, reporter_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest())
     (folder / "summary.json").write_text(json.dumps(result, indent=2) + "\n")
     lines = ["# GRotor and InstantGR2 Benchmark", "", f"Status: {result['status']}",
         f"Completed datasets: {len(seen)}", "", "All runtimes are in milliseconds. Speedup = InstantGR2 / GRotor; values below 1 indicate a slowdown. A zero denominator is reported as '-'.",
-        "Total = measured batching + measured routing DAG execution. InstantGR2 uses CUDA-Core batching time and the deterministic CPU batch plan for routing. GRotor uses standard RT-Core batching for L-shape and cached RT-Core batching for FLT, with warp/block DAG solving and incremental costs/BIT.", ""]
+        "Total = measured batching + measured routing DAG execution. InstantGR2 uses CUDA-Core batching time and the deterministic CPU batch plan for routing. GRotor uses standard L-shape/cached FLT batching on smaller designs and partitioned RT-Core batching on large designs, with warp/block DAG solving and incremental costs/BIT.", ""]
     if result.get("report_generation"):
         source = result["report_generation"]["source"]
         lines += [f"Tables regenerated from saved measurements: `{source}`. No routing or evaluation was rerun.", ""]
@@ -141,12 +147,12 @@ def write_summary(folder, result):
             lines.append("")
     lines += ["## Batching Runtime", "", "CPU is an additional InstantGR2 control. Algorithm totals use the CUDA-Core column.", ""]
     for _, algorithm, _ in ALGORITHMS:
-        lines += ["### " + algorithm, "", "| Dataset | CPU ms | CUDA-Core ms | RT-Core ms | CPU / RT | CUDA / RT |", "|---|---:|---:|---:|---:|---:|"]
+        lines += ["### " + algorithm, "", "| Dataset | RT method | CPU ms | CUDA-Core ms | RT-Core ms | CPU / RT | CUDA / RT |", "|---|---|---:|---:|---:|---:|---:|"]
         for r in batching:
             if r["algorithm"] == algorithm:
                 values = [formatted(r[k]) for k in ("instantgr2_cpu_ms", "instantgr2_cuda_core_ms", "grotor_rt_core_ms")]
                 values += [formatted(r[k], True) for k in ("speedup_vs_cpu", "speedup_vs_cuda_core")]
-                lines.append("| " + r["dataset"] + " | " + " | ".join(values) + " |")
+                lines.append("| " + r["dataset"] + " | " + r["grotor_method"] + " | " + " | ".join(values) + " |")
         lines.append("")
     lines += ["## Evaluator Quality", "", "All four evaluator cost strings match for every completed case. Open and incomplete net counts must both be zero.", "",
         "| Dataset | Wirelength | Via | Overflow | Total | Open / incomplete |", "|---|---:|---:|---:|---:|---|"]
@@ -161,6 +167,7 @@ def write_summary(folder, result):
         "- GRotor FLT uses one continuous synchronized interval, including compact upload, GPU assembly, staging waits, cost/BIT updates, DP, traceback and demand commits. CPU topology construction/planning and workspace allocation precede it.",
         "- InstantGR2 FLT retains its sum of per-batch GPU suffix intervals, excluding preceding CPU packing. These recorded scope differences are retained when calculating speedups.",
         "- Standard RT-Core batching covers the complete coloring loop. Cached RT-Core batching covers pipeline preparation through coloring completion. Both exclude earlier geometry/BVH construction and later final batch collection/cleanup. CPU/CUDA-Core controls retain their complete-function timers.",
+        "- Partitioned RT-Core batching instead includes bitmap initialization, local geometry copies, scene/BVH construction, coloring, occupancy publication, batch-list assembly and cleanup in one continuous interval. For partitioned_pipeline_prebuilt_wall, shared pipeline compilation and warm-up precede the interval. L-shape retains rounds; FLT retains cached. Method and scope are retained in batching-runtime.csv and summary.json.",
         "- Algorithm totals exclude earlier preparation and file output. Complete GRotor phase/router measurements remain in summary.json and routing logs.",
         f"- CPU batch-list validation enabled: {cfg.get('validate_batches', False)}. It is disabled by default for performance tests.",
         "- Each new run writes one real routing output, evaluates it externally, then deletes it before the next run. No routing outputs are retained.",

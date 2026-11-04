@@ -36,7 +36,7 @@ inline void initialize_incremental_cost(RouterState& state) {
     printf("COST_STORAGE cells=%zu bit_nodes=%d bit_bytes=%zu dirty_bytes=%zu prefix_cache=reused\n",
            cells, offsets.back(), size_t(offsets.back()) * sizeof(double), 3 * bytes);
     grotor::cuda_check(cudaFuncSetAttribute(refresh_fenwick_tracks,
-        cudaFuncAttributeMaxDynamicSharedMemorySize, view.XY * (sizeof(double) + sizeof(unsigned int))), "BIT shared memory");
+        cudaFuncAttributeMaxDynamicSharedMemorySize, fenwick_shared_bytes(view.XY)), "BIT shared memory");
 #endif
 #endif
 }
@@ -119,12 +119,12 @@ inline void refresh_cost(RouterState& state) {
     if (!state.costs_initialized) {
         update_cost(state);
         refresh_fenwick_tracks<<<view.all_track_cnt, THREAD_NUM,
-            view.XY * (sizeof(double) + sizeof(unsigned int))>>>(view, true);
+            fenwick_shared_bytes(view.XY)>>>(view, true);
         state.costs_initialized = true;
     } else {
         update_dirty_costs<<<BLOCK_NUM(update_cells), THREAD_NUM>>>(view);
         refresh_fenwick_tracks<<<view.all_track_cnt, THREAD_NUM,
-            view.XY * (sizeof(double) + sizeof(unsigned int))>>>(view);
+            fenwick_shared_bytes(view.XY)>>>(view);
     }
     const size_t bytes = ((size_t(cells) + 31) / 32) * sizeof(unsigned int);
     grotor::cuda_check(cudaMemsetAsync(view.dirty_wire, 0, 3 * bytes), "clear consumed cost/BIT dirty bits");
