@@ -58,8 +58,9 @@ __device__ void update_dirty_wire_cost(const RoutingDeviceView& view, int index)
     }
 }
 
-// One thread inspects 32 cells. Clean words require no cost evaluation.
+// Adjacent lanes inspect adjacent cells and share the cached bitmap word.
 __global__ void update_dirty_costs(RoutingDeviceView view) {
+#ifdef GROTOR_ENABLE_NVSHMEM
     const int word = blockIdx.x * blockDim.x + threadIdx.x;
     const int cells = view.L * view.X * view.Y;
     if (word >= (cells + 31) / 32) return;
@@ -79,6 +80,19 @@ __global__ void update_dirty_costs(RoutingDeviceView view) {
         if ((via >> bit) & 1u)
             update_single_vcost_ispd24(view, index / view.X / view.Y, index / view.Y % view.X, index % view.Y);
     }
+#else
+    const int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index >= view.L * view.X * view.Y) return;
+    if (is_dirty(view.dirty_wire, index)) {
+#ifdef GROTOR_DENSE_PRESUM
+        update_single_wcost_ispd24(view, index);
+#else
+        update_dirty_wire_cost(view, index);
+#endif
+    }
+    if (is_dirty(view.dirty_via, index))
+        update_single_vcost_ispd24(view, index / view.X / view.Y, index / view.Y % view.X, index % view.Y);
+#endif
 }
 
 inline void refresh_cost(RouterState& state) {
@@ -89,9 +103,14 @@ inline void refresh_cost(RouterState& state) {
         return;
     }
     const int cells = view.L * view.X * view.Y;
+#ifdef GROTOR_ENABLE_NVSHMEM
+    const int update_cells = (cells + 31) / 32;
+#else
+    const int update_cells = cells;
+#endif
 #ifdef GROTOR_DENSE_PRESUM
     if (!state.costs_initialized) update_cost(state);
-    else update_dirty_costs<<<BLOCK_NUM((cells + 31) / 32), THREAD_NUM>>>(view);
+    else update_dirty_costs<<<BLOCK_NUM(update_cells), THREAD_NUM>>>(view);
     compute_presum<<<view.all_track_cnt, THREAD_NUM, view.XY * sizeof(double)>>>(view);
     state.costs_initialized = true;
     const size_t bytes = ((size_t(cells) + 31) / 32) * sizeof(unsigned int);
@@ -103,7 +122,7 @@ inline void refresh_cost(RouterState& state) {
             view.XY * (sizeof(double) + sizeof(unsigned int))>>>(view, true);
         state.costs_initialized = true;
     } else {
-        update_dirty_costs<<<BLOCK_NUM((cells + 31) / 32), THREAD_NUM>>>(view);
+        update_dirty_costs<<<BLOCK_NUM(update_cells), THREAD_NUM>>>(view);
         refresh_fenwick_tracks<<<view.all_track_cnt, THREAD_NUM,
             view.XY * (sizeof(double) + sizeof(unsigned int))>>>(view);
     }

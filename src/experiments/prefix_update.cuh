@@ -50,7 +50,7 @@ inline void refresh_prefix(cudb::RouterState& state) {
     if(!v.prefix_query_mode){graph::refresh_cost(state);return;}
     const bool rebuild=!state.costs_initialized;
     if(rebuild)graph::update_cost(state);
-    else graph::update_dirty_costs<<<BLOCK_NUM((v.L*v.X*v.Y+31)/32),THREAD_NUM>>>(v);
+    else graph::update_dirty_costs<<<BLOCK_NUM(v.L*v.X*v.Y),THREAD_NUM>>>(v);
     refresh_direct_bit<<<v.all_track_cnt,THREAD_NUM,v.XY*(sizeof(double)+sizeof(unsigned))>>>(v,rebuild);
     state.costs_initialized=true;
     const size_t bytes=((size_t(v.L)*v.X*v.Y+31)/32)*sizeof(unsigned);

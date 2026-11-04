@@ -12,7 +12,7 @@ from fig11_reporting import load_measurements, export_case, RAW_FIELDS, VARIANTS
 
 def fixture(folder):
     metadata=dict(status='completed',stage='lshape',shared_batch_plan=True,same_initial_demand=True,sparsity=1,
-        solver='warp',query_schedule='warp_broadcast',counter='logical_prefix_elements',total_scope='query_reads_plus_update_writes',
+        solver='warp',counter='logical_prefix_elements',total_scope='query_reads_plus_update_writes',
         bit_storage='full_shifted_bit_without_dense_cache',first_batch_initialization_included=True,
         routing_outputs_retained=0,batches=2,nets=30,cells=1000,evaluator_exit_status=[1,1,1])
     (folder/'measurement.json').write_text(json.dumps(metadata))
@@ -72,7 +72,7 @@ class Fig11ReportingTests(unittest.TestCase):
 
     def test_reject_wrong_method_or_incomplete_coverage(self):
         for key,value in (('counter','dram_transactions'),('bit_storage','dense_cache'),('solver','mixed'),
-                          ('first_batch_initialization_included',False),('query_schedule','per_lane'),('nets',31),('batches',3)):
+                          ('first_batch_initialization_included',False),('nets',31),('batches',3)):
             with self.subTest(key=key),tempfile.TemporaryDirectory() as directory:
                 folder=Path(directory);metadata=fixture(folder);metadata[key]=value
                 (folder/'measurement.json').write_text(json.dumps(metadata))

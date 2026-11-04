@@ -121,7 +121,7 @@ def write_summary(folder, result, plot=True):
         '|---|---|---:|---:|---:|---:|---:|']
     if result['configuration'].get('stop_after') == 'lshape':
         lines = ['# GRotor L-shape Final-Batch Scaling', '', f"Status: {result['status']}", '',
-            'All L-shape batches execute with the same legacy BFS node-parallel NVSHMEM implementation at every GPU count.',
+            'All L-shape batches execute with the same legacy BFS NVSHMEM implementation at every GPU count.',
             'Only the final executed batch is used for runtime and scaling. FLT is not executed.',
             'Its CUDA-event interval includes DP/traceback, separate wire/via commits, post-commit dirty cost updates,',
             'full local presum scans and required synchronization. BIT is disabled on all batches.',

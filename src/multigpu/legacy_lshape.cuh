@@ -159,7 +159,7 @@ inline void synchronize() {
 
 // One initialization and collection around the entire L-shape batch loop.
 // Every rank, including N=1, allocates the original full matrices and uses the
-// same P2P context, fixed launch geometry and node-parallel kernel.
+// same P2P context, fixed launch geometry and warp-per-DAG kernel.
 inline void run(RouterState* state,int rank,int ranks,const Header* root_header=nullptr,
                 std::vector<Payload>* root_payloads=nullptr,Clock::time_point preparation_start=Clock::now()) {
     Header h{}; if (!rank) h=*root_header; broadcast(h);

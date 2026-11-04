@@ -105,7 +105,7 @@ int main(int argc, char** argv) {
         printf("GROTOR_CONFIG batching=%s cost=incremental prefix=bit memory=explicit\n", rtcore_batching ? "rtcore" : "cpu");
 #endif
 #ifdef GROTOR_MULTI_LEGACY_LSHAPE
-        printf("DAG_SCHEDULING lshape=bfs-node-parallel flt=block\n");
+        printf("DAG_SCHEDULING lshape=warp flt=block\n");
 #elif defined(GROTOR_SERIAL_DAG)
         printf("DAG_SCHEDULING lshape=thread flt=global_depth\n");
 #else

@@ -122,6 +122,10 @@ void route_prepared_topology(RouterState& state, vector<int>& nets2route,
         printf("FLT_PREPARATION elapsed_ms=%.6f batches=%zu\n",
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - prepare_start).count(), plans.batches.size());
         RoutingDagTimer timer;
+        auto routing_view = view;
+#ifndef GROTOR_ENABLE_NVSHMEM
+        routing_view.pre_demand = nullptr;
+#endif
         workspace.upload(state.flt_topology, plans);
         if (!workspace.streamed) {
             grotor::cuda_check(cudaEventSynchronize(workspace.ready.value), "release uploaded FLT host topology");
@@ -130,21 +134,29 @@ void route_prepared_topology(RouterState& state, vector<int>& nets2route,
         for (const auto& batch : plans.batches) {
             workspace.assemble(state.flt_topology, plans, batch, view);
             if (remove_phase_one) {
+#ifdef GROTOR_ENABLE_NVSHMEM
                 graph::commit_wire_demand<<<BLOCK_NUM(batch.nets), THREAD_NUM>>>(view, batch.nets, 0, ++state.global_timestamp, -1, 0);
                 graph::commit_via_demand<<<BLOCK_NUM(batch.nets), THREAD_NUM>>>(view, batch.nets, 0, state.global_timestamp, -1, 0);
+#else
+                graph::commit_batch_demand(view, batch.nets, 0, ++state.global_timestamp, -1, 0);
+#endif
             }
             ++state.global_timestamp;
             graph::refresh_cost(state);
             precompute_cost_edge<<<BLOCK_NUM(batch.edges * 9), THREAD_NUM>>>(view, state.flt, batch.edges);
 #ifdef GROTOR_SERIAL_DAG
             const size_t batch_index = &batch - plans.batches.data();
-            route_flt_global_depths(view, state.flt, global_depths[batch_index], state.global_timestamp);
+            route_flt_global_depths(routing_view, state.flt, global_depths[batch_index], state.global_timestamp);
 #else
-            route_flt_block<<<batch.nets, 128>>>(view, state.flt, workspace.descriptors,
+            route_flt_block<<<batch.nets, 128>>>(routing_view, state.flt, workspace.descriptors,
                 batch.descriptor_begin, workspace.depth_offsets, state.global_timestamp);
 #endif
+#ifdef GROTOR_ENABLE_NVSHMEM
             graph::batch_wire_update(state, state.global_timestamp);
             graph::commit_via_demand<<<BLOCK_NUM(batch.nets), THREAD_NUM>>>(view, batch.nets, 0, state.global_timestamp);
+#else
+            graph::commit_batch_demand(view, batch.nets, 0, state.global_timestamp);
+#endif
             grotor::cuda_check(cudaGetLastError(), "FLT batch launch");
         }
         const auto interval = timer.stop();

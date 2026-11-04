@@ -29,7 +29,7 @@ def read_variant(path):
 def load_measurements(folder):
     metadata=json.loads((folder/'measurement.json').read_text())
     required=dict(status='completed',stage='lshape',shared_batch_plan=True,same_initial_demand=True,sparsity=1,
-        solver='warp',query_schedule='warp_broadcast',counter='logical_prefix_elements',total_scope='query_reads_plus_update_writes',
+        solver='warp',counter='logical_prefix_elements',total_scope='query_reads_plus_update_writes',
         bit_storage='full_shifted_bit_without_dense_cache',first_batch_initialization_included=True,routing_outputs_retained=0)
     if any(metadata.get(k)!=v for k,v in required.items()):raise ValueError('Invalid Figure 11 measurement configuration')
     variants=[read_variant(folder/(name+'.csv')) for name in VARIANTS]
@@ -113,7 +113,7 @@ def write_summary(folder,result):
     lines=['# Figure 11: Per-Batch Prefix Memory Accesses','',f"Status: {result['status']}",'',
         'Total per batch = writes to the prefix structure during its update + reads from that structure during wire-cost queries. Counters measure logical source-level element accesses, not bytes, cache misses, coalesced transactions or DRAM traffic. Repeated and zero-sentinel reads count; shared-memory scans, input costs, metadata, dirty masks and instrumentation traffic do not. BIT maintenance reads are recorded separately and excluded from the requested total.','',
         'Original uses full cost updates and a full dense prefix scan. BIT and BIT & Pruning use identical incremental cost/dirty-node updates and a full shifted BIT without materializing a dense prefix cache. BIT independently accumulates both endpoint prefixes and subtracts; pruning stops both traversals at their common ancestor. Only query mode differs between the two BIT arms.','',
-        'All three arms use warp-per-DAG solving, one immutable CPU batch plan with sparsity 1, shared RSMT topology, and identical reset initial demand. The warp-uniform child-segment query is executed by lane 0 and broadcast to the remaining lanes. Counts describe executed traversals and are never divided or capped. Keeping DAG scheduling fixed isolates prefix data structures. Initialization writes in batch 0 are included; every batch is measured and plotted, with no interpolation or point removal. Instrumented runtimes are not performance results.','',
+        'All three arms use warp-per-DAG solving, one immutable CPU batch plan with sparsity 1, shared RSMT topology, and identical reset initial demand. Counts describe executed traversals and are never divided or capped. Keeping DAG scheduling fixed isolates prefix data structures. Initialization writes in batch 0 are included; every batch is measured and plotted, with no interpolation or point removal. Instrumented runtimes are not performance results.','',
         '| Dataset | Batches | Original accesses | BIT accesses | BIT & Pruning accesses |','|---|---:|---:|---:|---:|']
     for c in result['cases']:
         if c['status']=='passed':

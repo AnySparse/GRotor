@@ -7,10 +7,11 @@ separate optimized single-GPU implementation.
 
 The port retains:
 
-- The original node-parallel warp kernel, stable BFS node layout, and fixed
+- The original warp-per-DAG kernel, stable BFS node layout, and fixed
   1056 blocks × 256 threads. A warp processes trees in a grid-stride loop and
-  reuses its maximum-tree scratch storage. It does not use GRotor's optimized
-  layer-parallel warp kernel on the one-GPU baseline.
+  reuses its maximum-tree scratch storage. The ordinary GRotor executor now also parallelizes nodes by depth, but
+  uses ordered sibling merges and a different scratch/commit policy. This
+  legacy path retains its own executor at the one-GPU baseline.
 - Full-size matrices on every PE, with disjoint X ownership and raw P2P
   pointers indexed by global coordinates, including at N=1. No compact-shard
   decoder or special one-GPU pointer path is used.

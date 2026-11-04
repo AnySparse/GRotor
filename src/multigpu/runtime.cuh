@@ -189,7 +189,7 @@ public:
         cuda_check(cudaFuncGetAttributes(&attributes, Lshape_route_detour::route_flt_block), "load FLT solver");
         printf("MULTIGPU_DEVICE rank=%d pe=%d device=%d name=%s\n", rank, rank, local_rank, properties.name);
 #ifdef GROTOR_MULTI_LEGACY_LSHAPE
-        if (!rank) printf("MULTIGPU_LSHAPE_EXECUTOR implementation=legacy-p2p blocks=1056 threads=256 warp=node-parallel demand=int2 dirty=bool matrix=full single_path=peer all_batches=distributed\n");
+        if (!rank) printf("MULTIGPU_LSHAPE_EXECUTOR implementation=legacy-p2p blocks=1056 threads=256 demand=int2 dirty=bool matrix=full single_path=peer all_batches=distributed\n");
 #endif
 #ifdef GROTOR_MULTI_GRID
         if (!rank) printf("MULTIGPU_CONFIG grid=spatial cost=incremental prefix=local-dense bit=off-all-batches commit=distributed timing=my-gr-cuda-event\n");

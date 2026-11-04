@@ -211,7 +211,7 @@ def main(argv=None):
                         raise ValueError('Router must stop after L-shape, before FLT')
                     if re.search(r'^(?:MULTIGPU_BATCH|DAG_TIMING|TOPOLOGY_TIMING) stage=(?:flt|detour) ', text, re.M):
                         raise ValueError('Unexpected FLT execution in an L-shape-only measurement')
-                    policy = 'MULTIGPU_LSHAPE_EXECUTOR implementation=legacy-p2p blocks=1056 threads=256 warp=node-parallel demand=int2 dirty=bool matrix=full single_path=peer all_batches=distributed'
+                    policy = 'MULTIGPU_LSHAPE_EXECUTOR implementation=legacy-p2p blocks=1056 threads=256 demand=int2 dirty=bool matrix=full single_path=peer all_batches=distributed'
                     if policy not in text.splitlines():
                         raise ValueError('Legacy execution policy missing; keep the same executor at every GPU count')
                     if not re.search(r'^COST_STORAGE cells=\d+ bit_nodes=0 bit_bytes=0 ', text, re.M):

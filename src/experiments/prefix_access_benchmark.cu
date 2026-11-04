@@ -71,9 +71,10 @@ int main(int argc,char** argv) {
                 grotor::cuda_check(cudaMemset(v.prefix_queries,0,threads*sizeof(cudb::PrefixQueryCounts)),"reset thread query counters");
                 const int stamp=++state.global_timestamp;
                 refresh_prefix(state);
-                Lshape_route::Lshape_route_warp<<<threads/128,128>>>(v,b.nets,b.begin,work.node_offsets,work.nodes,work.parents,work.dist,work.from,work.ranges,stamp);
-                graph::batch_wire_update(state,stamp);
-                graph::commit_via_demand<<<BLOCK_NUM(b.nets),THREAD_NUM>>>(v,b.nets,b.begin,stamp);
+                auto routing_view=v;
+                routing_view.pre_demand=nullptr;
+                Lshape_route::Lshape_route_warp<<<threads/128,128>>>(routing_view,b.nets,b.begin,work.node_offsets,work.nodes,work.parents,work.dist,work.from,work.ranges,stamp);
+                graph::commit_batch_demand(v,b.nets,b.begin,stamp);
                 reduce_query_counts<<<(threads+255)/256,256>>>(v,threads);
                 cudb::PrefixAccessCounts measured;
                 grotor::cuda_check(cudaMemcpy(&measured,counts,sizeof(measured),cudaMemcpyDeviceToHost),"download prefix access counts");
@@ -94,7 +95,7 @@ int main(int argc,char** argv) {
         report<<"{\n  \"status\": \"completed\",\n  \"stage\": \"lshape\",\n"
             <<"  \"shared_batch_plan\": true,\n  \"same_initial_demand\": true,\n  \"sparsity\": 1,\n"
             <<"  \"nets\": "<<v.NET_NUM<<",\n  \"batches\": "<<work.batches.size()<<",\n"
-            <<"  \"cells\": "<<size_t(v.L)*v.X*v.Y<<",\n  \"solver\": \"warp\",\n  \"query_schedule\": \"warp_broadcast\",\n"
+            <<"  \"cells\": "<<size_t(v.L)*v.X*v.Y<<",\n  \"solver\": \"warp\",\n"
             <<"  \"counter\": \"logical_prefix_elements\",\n  \"total_scope\": \"query_reads_plus_update_writes\",\n"
             <<"  \"bit_storage\": \"full_shifted_bit_without_dense_cache\",\n  \"first_batch_initialization_included\": true,\n"
             <<"  \"evaluator_exit_status\": ["<<statuses[0]<<","<<statuses[1]<<","<<statuses[2]<<"],\n  \"routing_outputs_retained\": 0\n}\n";

@@ -55,7 +55,7 @@ struct Fixture {
         grotor::cuda_check(cudaMemset(v.routes_phase2, 0, 5*256*100*sizeof(int)), "reset fixture FLT routes");
     }
 };
-void check_lshape(int direction, bool ties) {
+void check_lshape(int direction, bool ties, int shape) {
     Fixture f(direction, ties); auto& v = f.state.device;
 #ifdef GROTOR_PREFIX_ACCESS_COUNTS
     f.alloc(v.prefix_queries, 256);
@@ -65,7 +65,7 @@ void check_lshape(int direction, bool ties) {
         for (int i = 0; i < n; ++i) {
             const int fixed = (i * 7 + n) % 10;
             nodes.push_back(fixed * 24*24 + ((i * 7 + n) % 24) * 24 + ((i * 11 + n) % 24));
-            parents.push_back(i ? (i - 1) / 2 : -1);
+            parents.push_back(!i ? -1 : shape == 1 ? 0 : shape == 2 ? i - 1 : shape == 3 ? int(((unsigned(i) * 2654435761u) ^ (unsigned(i) >> 2)) % unsigned(i)) : (i - 1) / 2);
         }
         offsets.push_back(nodes.size());
     }
@@ -96,7 +96,7 @@ void check_lshape(int direction, bool ties) {
             for(const auto& counter:counters){reads+=counter.reads;queries+=counter.queries;}
             if(!repeat){expected_reads=reads;expected_queries=queries;}
             else if(reads!=expected_reads || queries!=expected_queries)
-                throw std::runtime_error("Warp broadcast query counts differ from thread-per-DAG oracle");
+                throw std::runtime_error("Warp query counts differ from thread-per-DAG oracle");
 #endif
             auto c=download(costs,nodes.size()*81);
             auto p=download(paths,nodes.size()*81),r=download(ranges,nodes.size());
@@ -106,7 +106,7 @@ void check_lshape(int direction, bool ties) {
                 throw std::runtime_error("Warp L-shape differs from serial-node oracle");
         }
     }
-    printf("PASS LSHAPE_WARP direction=%d ties=%d exact_costs_paths_demands=1\n",direction,int(ties));
+    printf("PASS LSHAPE_WARP direction=%d ties=%d shape=%d exact_costs_paths_demands=1\n",direction,int(ties),shape);
 }
 grotor::flt::Builder diamond(int diamonds, int fixed) {
     grotor::flt::Builder b;
@@ -217,7 +217,7 @@ void check_flt(int direction, bool ties, bool streamed) {
 int main() {
     try {
         for (int direction:{0,1})for (bool ties:{false,true}) {
-            check_lshape(direction,ties);
+            for (int shape=0; shape<4; ++shape) check_lshape(direction,ties,shape);
             // FLT path encodings use the benchmark's vertical-even layout (DIR=1).
             if (direction) {check_flt(direction,ties,false);check_flt(direction,ties,true);}
         }

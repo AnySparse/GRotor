@@ -59,7 +59,7 @@ __device__ void atomic_add_unit_demand_wire_segment(const RoutingDeviceView& vie
     auto& timestamp = view.timestamp;
     auto& pre_demand = view.pre_demand;
     assert(minx == maxx || miny == maxy);
-    // Distributed execution commits explicit segments after all solves finish.
+    // Direct segment commits do not need the difference grid.
     if (!pre_demand) return;
 
     atomicAdd(pre_demand + IDX(l, minx, miny), K);
@@ -233,6 +233,93 @@ __global__ void commit_via_demand(const GROTOR_GRID_CONSTANT RoutingDeviceView v
         }
     }
     atomicAdd(&total_via_count, via_count * K);
+}
+
+// A warp walks one net's segments. Wire and via launches remain separate so
+// every via observes the complete batch's wire timestamps, including endpoints.
+__global__ void commit_batch_wires(const GROTOR_GRID_CONSTANT RoutingDeviceView view,
+    int count, int offset, int stamp, int K = 1, int phase = -1) {
+    const int lane = threadIdx.x & 31;
+    const int warp = (blockIdx.x * blockDim.x + threadIdx.x) / 32;
+    const int warps = gridDim.x * blockDim.x / 32;
+    const int X = view.X, Y = view.Y;
+    const auto demand = cudb::demand_values(view);
+    const auto timestamps = cudb::timestamp_values(view);
+    for (int slot = warp; slot < count; slot += warps) {
+        const int id = view.net_ids[offset + slot];
+        const bool second = phase != 0 && view.ripup_flag[id];
+        const int* routes = second ? view.routes_phase2 + size_t(view.pin_acc_num_phase2[id]) * view.ROUTE_PER_PIN_PHASE2
+                                   : view.routes + size_t(view.pin_acc_num[id]) * view.ROUTE_PER_PIN;
+        double length = 0;
+        for (int i = 1; i < routes[0]; i += 2) {
+            const int a = routes[i], b = routes[i + 1], layer = a / (X * Y);
+            if (layer != b / (X * Y)) continue;
+            const int x0 = a / Y % X, y0 = a % Y, x1 = b / Y % X, y1 = b % Y;
+            assert(x0 == x1 || y0 == y1);
+            const bool along_y = x0 == x1;
+            const int lo = along_y ? min(y0, y1) : min(x0, x1);
+            const int hi = along_y ? max(y0, y1) : max(x0, x1);
+            if (!lane) {
+                timestamps[a] = timestamps[b] = stamp;
+                if (along_y) mark_wire_span(view, layer, x0, x1, y0, y1);
+            }
+            for (int pos = lo + lane; pos < hi; pos += 32) {
+                const int index = layer * X * Y + (along_y ? x0 * Y + pos : pos * Y + y0);
+                atomicAdd(demand + index, float(K));
+                timestamps[index] = stamp;
+                if (!along_y) mark_cost_dirty(view, index);
+                length += along_y ? view.y_edge_len[pos] : view.x_edge_len[pos];
+            }
+        }
+        for (int step = 16; step; step >>= 1) length += __shfl_down_sync(0xffffffffu, length, step);
+        if (!lane) atomicAdd(&view.statistics->total_wirelength, length * K);
+    }
+}
+
+__global__ void commit_batch_vias(const GROTOR_GRID_CONSTANT RoutingDeviceView view,
+    int count, int offset, int stamp, int K = 1, int phase = -1) {
+    const int lane = threadIdx.x & 31;
+    const int warp = (blockIdx.x * blockDim.x + threadIdx.x) / 32;
+    const int warps = gridDim.x * blockDim.x / 32;
+    const int X = view.X, Y = view.Y;
+    const auto timestamps = cudb::timestamp_values(view);
+    for (int slot = warp; slot < count; slot += warps) {
+        const int id = view.net_ids[offset + slot];
+        const bool second = phase != 0 && view.ripup_flag[id];
+        const int* routes = second ? view.routes_phase2 + size_t(view.pin_acc_num_phase2[id]) * view.ROUTE_PER_PIN_PHASE2
+                                   : view.routes + size_t(view.pin_acc_num[id]) * view.ROUTE_PER_PIN;
+        int vias = 0;
+        for (int i = 1 + 2 * lane; i < routes[0]; i += 64) {
+            const int a = routes[i], b = routes[i + 1], low = min(a / (X * Y), b / (X * Y));
+            const int high = max(a / (X * Y), b / (X * Y));
+            if (low == high) continue;
+            const int x = a / Y % X, y = a % Y;
+            vias += high - low;
+            for (int layer = low; layer < high; ++layer) {
+                const int index = layer * X * Y + x * Y + y;
+                if (timestamps[index] >= stamp) continue;
+                const bool along_y = (layer & 1) ^ view.DIR;
+                const int position = along_y ? y : x, length = along_y ? Y : X;
+                const int stride = along_y ? 1 : Y;
+                if (!position) add_demand(view, index, float(K));
+                else if (position == length - 1) add_demand(view, index - stride, float(K));
+                else {
+                    add_demand(view, index - stride, .5f * K);
+                    add_demand(view, index, .5f * K);
+                }
+            }
+        }
+        for (int step = 16; step; step >>= 1) vias += __shfl_down_sync(0xffffffffu, vias, step);
+        if (!lane) atomicAdd(&view.statistics->total_via_count, vias * K);
+    }
+}
+
+inline void commit_batch_demand(const RoutingDeviceView& view, int count, int offset,
+                                int stamp, int K = 1, int phase = -1) {
+    if (!count) return;
+    const int blocks = min((count + 3) / 4, 1056);
+    commit_batch_wires<<<blocks, 128>>>(view, count, offset, stamp, K, phase);
+    commit_batch_vias<<<blocks, 128>>>(view, count, offset, stamp, K, phase);
 }
 
 } // namespace graph

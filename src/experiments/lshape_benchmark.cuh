@@ -107,12 +107,13 @@ struct Workspace {
             cudb::RoutingDagTimer timer;
             const int stamp=++state.global_timestamp;
             graph::refresh_cost(state);
+            auto routing_view=state.device;
+            routing_view.pre_demand=nullptr;
             if (optimized)
-                Lshape_route::Lshape_route_warp<<<(b.nets+3)/4,128>>>(state.device,b.nets,b.begin,node_offsets,nodes,parents,dist,from,ranges,stamp);
+                Lshape_route::Lshape_route_warp<<<(b.nets+3)/4,128>>>(routing_view,b.nets,b.begin,node_offsets,nodes,parents,dist,from,ranges,stamp);
             else
-                Lshape_route::Lshape_route_cuda<<<BLOCK_NUM(b.nets),THREAD_NUM>>>(state.device,b.nets,b.begin,node_offsets,nodes,parents,dist,from,ranges,stamp);
-            graph::batch_wire_update(state,stamp);
-            graph::commit_via_demand<<<BLOCK_NUM(b.nets),THREAD_NUM>>>(state.device,b.nets,b.begin,stamp);
+                Lshape_route::Lshape_route_cuda<<<BLOCK_NUM(b.nets),THREAD_NUM>>>(routing_view,b.nets,b.begin,node_offsets,nodes,parents,dist,from,ranges,stamp);
+            graph::commit_batch_demand(state.device,b.nets,b.begin,stamp);
             const auto interval=timer.stop();
             const auto us=interval.end_us-interval.start_us;
             if(us<=0)throw std::runtime_error("Nonpositive DAG throughput benchmark batch duration");

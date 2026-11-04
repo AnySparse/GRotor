@@ -144,6 +144,10 @@ void Lshape_route(RouterState& state, vector<int> &nets2route) {
     graph::refresh_cost(state);
 #endif
     RoutingDagTimer dag_timer;
+    auto routing_view = state.device;
+#ifndef GROTOR_ENABLE_NVSHMEM
+    routing_view.pre_demand = nullptr;
+#endif
      for(int i = 0; i < batches.size(); i++) {
 #ifdef GROTOR_ENABLE_NVSHMEM
         if (i + 1 == batches.size()) {
@@ -157,12 +161,16 @@ void Lshape_route(RouterState& state, vector<int> &nets2route) {
         graph::refresh_cost(state);
 #endif
 #ifdef GROTOR_SERIAL_DAG
-        Lshape_route_cuda<<<BLOCK_NUM(batches[i].size()), THREAD_NUM>>>(state.device, batches[i].size(), batch_cnt_sum[i], node_cnt_sum, nodes, par_nodes, dist, from, layer_range, global_timestamp);
+        Lshape_route_cuda<<<BLOCK_NUM(batches[i].size()), THREAD_NUM>>>(routing_view, batches[i].size(), batch_cnt_sum[i], node_cnt_sum, nodes, par_nodes, dist, from, layer_range, global_timestamp);
 #else
-        Lshape_route_warp<<<(batches[i].size() + 3) / 4, 128>>>(state.device, batches[i].size(), batch_cnt_sum[i], node_cnt_sum, nodes, par_nodes, dist, from, layer_range, global_timestamp);
+        Lshape_route_warp<<<(batches[i].size() + 3) / 4, 128>>>(routing_view, batches[i].size(), batch_cnt_sum[i], node_cnt_sum, nodes, par_nodes, dist, from, layer_range, global_timestamp);
 #endif
+#ifdef GROTOR_ENABLE_NVSHMEM
         graph::batch_wire_update(state, global_timestamp);
         graph::commit_via_demand<<<BLOCK_NUM(batches[i].size()), THREAD_NUM>>>(state.device, batches[i].size(), batch_cnt_sum[i], global_timestamp);
+#else
+        graph::commit_batch_demand(state.device, batches[i].size(), batch_cnt_sum[i], global_timestamp);
+#endif
 #ifdef GROTOR_DENSE_PRESUM
         graph::refresh_cost(state);
 #endif

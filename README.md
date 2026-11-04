@@ -113,7 +113,7 @@ routing. The RT-Core comparison below remains available with `--batching rtcore`
 `script/run-fig13.py` runs **L-shape only**, stops before FLT, and reports
 runtime and speedup for **the last executed L-shape batch**. All earlier
 batches still execute to establish the correct demand/cost state. Every GPU
-count, including one, uses the same original BFS node-parallel NVSHMEM
+count, including one, uses the same original BFS NVSHMEM
 executor: fixed 1056×256 launches, full per-PE matrices, integer demand,
 bool dirty flags, separate wire/via commits and full local presum scans.
 BIT is disabled on every batch.
@@ -502,6 +502,44 @@ cmake --build build/fig7/sm_89 --target grotor_rtcore_blocker_check --parallel 2
 ctest --test-dir build/fig7/sm_89 -R rtcore_blocker --output-on-failure
 ```
 
+## L-shape warp scheduling
+
+An ordinary GRotor warp owns one routing tree. Lanes solve different nodes
+at the same depth, then synchronize before moving toward the root. For each
+parent, one elected lane merges child contributions in descending original
+node order. This reproduces the scalar reverse-DFS sum without floating-point
+atomic additions. Traceback also runs by depth; integer warp scans assign
+stable route offsets in the original node order.
+
+The existing layer-range buffer temporarily holds depth tags. The solver does
+not add per-design topology arrays or a global floating-point message cache.
+Depth initialization and ordered merging are included in the routing-DAG
+interval. Figure 10/11/12 builds use this same corrected solver. Previously
+saved measurements from the layer-state-parallel solver retain their old
+source hashes and need rerunning when used as results for this implementation.
+The separately ported `GRotor_multi` legacy executor keeps its own execution
+and communication policy.
+
+To compare an archived layer-parallel executable with the corrected solver,
+build the ordinary GRotor target from this checkout, then run:
+
+```bash
+python3 script/compare_lshape_schedules.py \
+  --before-router /path/to/archived/GRotor \
+  --after-router build/GRotor-cuda/sm_89/GRotor \
+  --instantgr2 build/GRotor-cuda/sm_89/instantgr2_reference \
+  --evaluator build/GRotor-cuda/sm_89/grotor_evaluator \
+  --cases mempool_tile nvdla --repeats 2 \
+  --output-dir results/GRotor-lshape-node
+```
+
+The script alternates before/after runs, evaluates every actual output and
+exports median L-shape DAG/stage timings and speedups against both the archive
+and fresh InstantGR2. The before/after programs must use the same CUDA target,
+CPU batching and incremental cost/BIT configuration. Temporary routing outputs
+are deleted after evaluation. Add `--clean-results` to replace the selected
+report directory.
+
 ## Figure 10: per-batch routing DAG throughput
 
 Build and run the L-shape experiment for one specified dataset:
@@ -621,11 +659,10 @@ cache; Figure 11 is a separate direct-query ablation. Profiling is controlled by
 worker. Only the Figure 11 worker/tests receive the private compile definition
 `GROTOR_PREFIX_ACCESS_COUNTS=1`; `GRotor`, InstantGR2 and Figure 10 do not.
 
-Inside this profiling build, the warp-uniform child-segment query is executed
-by lane 0 and broadcast with a shuffle. It performs one query rather than 32
-identical lane queries. Other layer-specific queries remain individually
-counted. No totals are divided or capped. The unprofiled solver retains its
-existing implementation, with no added counters, branches or shuffles.
+Inside this profiling build, one lane handles each active node and counts the
+prefix queries it actually performs. Queries are not redundantly issued by
+all lanes for a single node. No totals are divided or capped. The performance
+build does not enable the prefix-access counters.
 
 Counts are logical element loads/stores, not bytes, cache misses or physical
 DRAM transactions. Repeated endpoint loads and stored zero-sentinel reads
@@ -668,7 +705,7 @@ calls/read counts as well as exact costs, paths and demand:
 cmake --build build/fig11/sm_89 \
   --target grotor_prefix_query_check grotor_prefix_dag_check --parallel 2
 ctest --test-dir build/fig11/sm_89 \
-  -R 'prefix_queries|prefix_dag_broadcast' --output-on-failure
+  -R 'prefix_queries|prefix_dag_queries' --output-on-failure
 ```
 
 ## Figure 12: cumulative routing ablation

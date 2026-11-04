@@ -65,7 +65,7 @@ def main():
     build=ROOT/"build/fig11"/("sm_"+args.cuda_arch)
     sources=source_manifest()
     sources["script/tests/lshape_thread_oracle.cuh"]=sha256(ROOT/"script/tests/lshape_thread_oracle.cuh")
-    result=dict(status="running",configuration=dict(stage="lshape",sparsity=1,shared_batch_plan=True,query_schedule="warp_broadcast",
+    result=dict(status="running",configuration=dict(stage="lshape",sparsity=1,shared_batch_plan=True,
         profiling="compile_time_prefix_access_only",plot_y_scale="linear",
         dataset=args.case,gpu=args.gpu,cuda_arch=args.cuda_arch,sources=sources,script_sha256=sha256(Path(__file__)),
         reporting_sha256=sha256(ROOT/"script/fig11_reporting.py"),matplotlib=matplotlib.__version__),cases=[])

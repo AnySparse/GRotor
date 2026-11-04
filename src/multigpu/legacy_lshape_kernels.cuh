@@ -1,7 +1,7 @@
 #pragma once
 // Faithful L-shape execution port from GRaptor_multi, with InstantGR2 costs.
 // Original files: common/operator.cuh and L_shape_route_inc_warp_centric_nvshmem.hpp.
-// Scheduling, BFS node parallelism, scratch reuse, separate commits and full
+// BFS layout, scratch reuse, separate commits and full
 // matrix P2P indexing are retained for every GPU count, including one.
 namespace grotor::multi::legacy {
 constexpr int block_size = 256, warp_size = 32, blocks = 1056;
