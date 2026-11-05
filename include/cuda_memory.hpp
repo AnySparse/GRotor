@@ -1,6 +1,6 @@
 #pragma once
 
-#include <cuda_runtime.h>
+#include "platform/gpu_runtime.hpp"
 #include <algorithm>
 #include <cstddef>
 #include <stdexcept>

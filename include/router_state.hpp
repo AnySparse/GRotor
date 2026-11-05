@@ -189,6 +189,7 @@ struct RouterState {
     bool costs_initialized = false;
     int batch_sparsity_override = 1;
     bool rtcore_batching = false;
+    bool report_score = true; // Optional diagnostics; evaluator remains authoritative.
 #ifdef GROTOR_ENABLE_RTCORE
     grotor::rtcore::PreparedGeometry rtcore_geometry;
     float rtcore_z_gap = 0x1p-16f;

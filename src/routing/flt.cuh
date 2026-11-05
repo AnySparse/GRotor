@@ -69,7 +69,7 @@ void prepare_detour_topology(RouterState& state, vector<int>& nets2route) {
         state.host.release(packing.congestionView_ysum_cpu);
     }
     printf("TOPOLOGY_TIMING stage=flt elapsed_ms=%.6f geometry_fused=%d\n",
-        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - topology_start).count(), int(state.rtcore_batching));
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - topology_start).count(), int(grotor::batching::geometry_fused(state)));
 }
 
 void route_prepared_topology(RouterState& state, vector<int>& nets2route,
@@ -84,6 +84,8 @@ void route_prepared_topology(RouterState& state, vector<int>& nets2route,
         grotor::batching::report_stage(batch_stage, grotor::batching::partitioned(state, nets2route.size()) ? "partitioned" : "cached", state, nets2route.size());
         auto batch_run = grotor::batching::generate_batches_rtcore_cached(state, nets2route, 300000);
         batches = grotor::batching::finish(state, nets2route, 300000, std::move(batch_run));
+#elif defined(GROTOR_ENABLE_HIPRT)
+        batches = grotor::hiprt_batching::generate(state, nets2route, 300000, "flt");
 #else
         throw std::runtime_error("RT-Core build required");
 #endif

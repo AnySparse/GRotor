@@ -1,6 +1,9 @@
 #pragma once
 #include "generate_batches_cpu.hpp"
 #include "prepare_geometry.hpp"
+#ifdef GROTOR_ENABLE_HIPRT
+#include "hiprt/grid_chunk.cuh"
+#endif
 #ifdef GROTOR_ENABLE_RTCORE
 #include "generate_batches_rtcore.cuh"
 #include "generate_batches_rtcore_cached.cuh"

@@ -65,7 +65,7 @@ inline void route(cudb::RouterState& state) {
     std::vector<int> all_nets(state.nets.size());
     for (int i = 0; i < all_nets.size(); ++i) all_nets[i] = i;
     Lshape_route::Lshape_route(state, all_nets);
-    if (LOG) graph::report_score(state);
+    if (LOG && state.report_score) graph::report_score(state);
     wait_output(output_task);
     start = Clock::now();
     state.download_routes(false);
@@ -135,7 +135,7 @@ inline void route(cudb::RouterState& state) {
         fflush(stdout);
     }
     Lshape_route_detour::route_detour(state, overflow_nets.first);
-    if (LOG) graph::report_score(state);
+    if (LOG && state.report_score) graph::report_score(state);
     start = Clock::now();
     state.download_routes(true);
     download_ms += milliseconds(start);

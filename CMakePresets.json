@@ -18,7 +18,8 @@
         "GROTOR_BUILD_ROUTING_ABLATION": "OFF",
         "GROTOR_BUILD_CUGR2_ROUTER": "OFF",
         "GROTOR_BUILD_GGR_ROUTER": "OFF",
-        "CMAKE_CUDA_ARCHITECTURES": "89"
+        "CMAKE_CUDA_ARCHITECTURES": "89",
+        "GROTOR_GPU_BACKEND": "CUDA"
       }
     },
     {
@@ -46,6 +47,30 @@
       "binaryDir": "${sourceDir}/build/GRotor-rtcore/sm_89",
       "cacheVariables": {
         "GROTOR_ENABLE_RTCORE": "ON"
+      }
+    },
+    {
+      "name": "hip",
+      "displayName": "AMD HIP with CPU batching (gfx1200)",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/hip-cpu",
+      "cacheVariables": {
+        "GROTOR_GPU_BACKEND": "HIP",
+        "CMAKE_HIP_COMPILER": "/opt/rocm/llvm/bin/clang++",
+        "CMAKE_HIP_ARCHITECTURES": "gfx1200",
+        "GROTOR_ENABLE_RTCORE": "OFF",
+        "GROTOR_ENABLE_HIPRT": "OFF",
+        "GROTOR_HOST_MEMORY_SAVING": "OFF"
+      }
+    },
+    {
+      "name": "hiprt",
+      "displayName": "AMD HIPRT routing (set HIPRT_ROOT)",
+      "inherits": "hip",
+      "binaryDir": "${sourceDir}/build/hip",
+      "cacheVariables": {
+        "GROTOR_ENABLE_HIPRT": "ON",
+        "HIPRT_ROOT": "$env{HIPRT_ROOT}"
       }
     }
   ],
@@ -89,6 +114,16 @@
         "instantgr2_reference",
         "grotor_evaluator"
       ]
+    },
+    {
+      "name": "hip",
+      "configurePreset": "hip",
+      "jobs": 2
+    },
+    {
+      "name": "hiprt",
+      "configurePreset": "hiprt",
+      "jobs": 2
     }
   ]
 }

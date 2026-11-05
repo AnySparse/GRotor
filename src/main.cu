@@ -13,6 +13,12 @@
 #error "G_ROTOR_RESOURCE_DIR must point to the FLUTE lookup tables"
 #endif
 
+#ifdef GROTOR_USE_HIP
+#define GROTOR_RT_BATCH_NAME "hiprt"
+#else
+#define GROTOR_RT_BATCH_NAME "rtcore"
+#endif
+
 int main(int argc, char** argv) {
     try {
 #ifdef GROTOR_ENABLE_NVSHMEM
@@ -24,11 +30,11 @@ int main(int argc, char** argv) {
 #endif
         std::string cap, net, output, lut_dir = G_ROTOR_RESOURCE_DIR;
         int sparsity = 1;
-        bool profile_stages = false;
+        bool profile_stages = false, report_score = true;
         bool stop_after_lshape = false;
         bool rtcore_batching = false, validate_rtcore = false;
         if (argc < 7 || argc % 2 != 1)
-            throw std::invalid_argument("Usage: GRotor -cap FILE -net FILE -out FILE [--batching cpu|rtcore] [--validate-batches 0|1] [--sparsity N] [--lut-dir DIR] [--profile-stages 0|1] [--stop-after lshape|routing]");
+            throw std::invalid_argument("Usage: GRotor -cap FILE -net FILE -out FILE [--batching cpu|rtcore|hiprt] [--validate-batches 0|1] [--sparsity N] [--lut-dir DIR] [--profile-stages 0|1] [--report-score 0|1] [--stop-after lshape|routing]");
         for (int i = 1; i < argc; i += 2) {
             const std::string option = argv[i], value = argv[i + 1];
             if (option == "-cap") cap = value;
@@ -36,14 +42,23 @@ int main(int argc, char** argv) {
             else if (option == "-out") output = value;
             else if (option == "--lut-dir") lut_dir = value;
             else if (option == "--batching") {
-                if (value != "cpu" && value != "rtcore")
-                    throw std::invalid_argument("--batching expects cpu or rtcore");
-                rtcore_batching = value == "rtcore";
+                if (value != "cpu" && value != "rtcore" && value != "hiprt")
+                    throw std::invalid_argument("--batching expects cpu, rtcore or hiprt");
+                #ifdef GROTOR_USE_HIP
+                if (value == "rtcore") throw std::invalid_argument("HIP uses --batching hiprt");
+#else
+                if (value == "hiprt") throw std::invalid_argument("HIPRT requires the HIP build");
+#endif
+                rtcore_batching = value != "cpu";
             }
             else if (option == "--validate-batches") {
                 if (value != "0" && value != "1")
                     throw std::invalid_argument("--validate-batches expects 0 or 1");
                 validate_rtcore = value == "1";
+            }
+            else if (option == "--report-score") {
+                if (value != "0" && value != "1") throw std::invalid_argument("--report-score expects 0 or 1");
+                report_score = value == "1";
             }
             else if (option == "--profile-stages") {
                 if (value != "0" && value != "1")
@@ -65,16 +80,22 @@ int main(int argc, char** argv) {
         if (cap.empty() || net.empty() || output.empty())
             throw std::invalid_argument("-cap, -net and -out are required");
         if (validate_rtcore && !rtcore_batching)
-            throw std::invalid_argument("--validate-batches requires --batching rtcore");
+            throw std::invalid_argument("--validate-batches requires ray-tracing batching (rtcore on CUDA, hiprt on HIP)");
         if (rtcore_batching && sparsity != 1)
-            throw std::invalid_argument("RT-Core batching requires --sparsity 1");
+            throw std::invalid_argument("Ray-tracing batching requires --sparsity 1");
 #if defined(GROTOR_CUGR2_ROUTING) || defined(GROTOR_GGR_ROUTING)
         if (stop_after_lshape)
             throw std::invalid_argument("--stop-after lshape requires the GRotor routing pipeline");
 #endif
-#ifndef GROTOR_ENABLE_RTCORE
+#if !defined(GROTOR_ENABLE_RTCORE) && !defined(GROTOR_ENABLE_HIPRT)
         if (rtcore_batching)
-            throw std::invalid_argument("Rebuild with -DGROTOR_ENABLE_RTCORE=ON to use RT-Core batching");
+            throw std::invalid_argument("Rebuild with GROTOR_ENABLE_RTCORE (CUDA) or GROTOR_ENABLE_HIPRT (HIP)");
+#endif
+#ifdef GROTOR_USE_HIP
+        hipDeviceProp_t properties{};
+        grotor::cuda_check(hipGetDeviceProperties(&properties, 0), "HIP device properties");
+        if (properties.warpSize != 32) throw std::runtime_error("HIP routing currently requires a 32-lane wave");
+        printf("GPU_PLATFORM backend=HIP device=%s arch=%s wave=%d memory_bytes=%zu\n", properties.name, properties.gcnArchName, properties.warpSize, properties.totalGlobalMem);
 #endif
         program_start = std::chrono::high_resolution_clock::now();
         auto gpu_ready = std::async(std::launch::async, [] {
@@ -84,6 +105,10 @@ int main(int argc, char** argv) {
                                "load CUDA module");
         });
         db::read(cap.data(), net.data());
+#ifdef GROTOR_USE_HIP
+        if (size_t(std::max(db::X, db::Y)) * sizeof(double) > properties.sharedMemPerBlock)
+            throw std::runtime_error("HIP full-prefix/BIT kernels require max(X,Y)*8 bytes of shared memory; grid track exceeds this device's limit");
+#endif
         // The LUT loader uses relative filenames. Restore the caller's
         // directory immediately, so routing and output paths remain independent.
         const auto caller_directory = std::filesystem::current_path();
@@ -98,11 +123,11 @@ int main(int argc, char** argv) {
         if (setvbuf(out_file, nullptr, _IONBF, 0))
             throw std::runtime_error("Cannot configure routing output");
 #ifdef GROTOR_FULL_COST_REFERENCE
-        printf("GROTOR_CONFIG batching=%s cost=full prefix=full memory=explicit\n", rtcore_batching ? "rtcore" : "cpu");
+        printf("GROTOR_CONFIG batching=%s cost=full prefix=full memory=explicit\n", rtcore_batching ? GROTOR_RT_BATCH_NAME : "cpu");
 #elif defined(GROTOR_DENSE_PRESUM)
-        printf("GROTOR_CONFIG batching=%s cost=incremental prefix=dense bit=off memory=explicit\n", rtcore_batching ? "rtcore" : "cpu");
+        printf("GROTOR_CONFIG batching=%s cost=incremental prefix=dense bit=off memory=explicit\n", rtcore_batching ? GROTOR_RT_BATCH_NAME : "cpu");
 #else
-        printf("GROTOR_CONFIG batching=%s cost=incremental prefix=bit memory=explicit\n", rtcore_batching ? "rtcore" : "cpu");
+        printf("GROTOR_CONFIG batching=%s cost=incremental prefix=bit memory=explicit\n", rtcore_batching ? GROTOR_RT_BATCH_NAME : "cpu");
 #endif
 #ifdef GROTOR_MULTI_LEGACY_LSHAPE
         printf("DAG_SCHEDULING lshape=warp flt=block\n");
@@ -115,13 +140,15 @@ int main(int argc, char** argv) {
 #ifdef GROTOR_PREFIX_ACCESS_COUNTS
 #error "Routing ablation timing must not enable prefix access counters"
 #endif
-        printf("ABLATION_CONFIG variant=%s counters=off batching=%s\n", GROTOR_ABLATION_VARIANT, rtcore_batching ? "rtcore" : "cpu");
+        printf("ABLATION_CONFIG variant=%s counters=off batching=%s\n", GROTOR_ABLATION_VARIANT, rtcore_batching ? GROTOR_RT_BATCH_NAME : "cpu");
 #endif
         printf("CONGESTION_REDUCTION=per-cell\n");
+        printf("SCORE_DIAGNOSTICS enabled=%d\n", int(report_score));
         {
             cudb::RouterState state;
             state.batch_sparsity_override = sparsity;
             state.profile_stages = profile_stages;
+            state.report_score = report_score;
             state.stop_after_lshape = stop_after_lshape;
             state.rtcore_batching = rtcore_batching;
             state.validate_rtcore_batches = validate_rtcore;

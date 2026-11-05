@@ -44,7 +44,7 @@ void Lshape_route(RouterState& state, vector<int> &nets2route) {
     }
     if(LOG) printf("[%5.1f] FLUTE END", elapsed_time()); cerr << endl;
     printf("TOPOLOGY_TIMING stage=lshape elapsed_ms=%.6f geometry_fused=%d\n",
-           std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-topology_start).count(), int(state.rtcore_batching));
+           std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-topology_start).count(), int(grotor::batching::geometry_fused(state)));
 
 
     //generate batches
@@ -61,6 +61,8 @@ void Lshape_route(RouterState& state, vector<int> &nets2route) {
         grotor::batching::report_stage("lshape", grotor::batching::partitioned(state, nets2route.size()) ? "partitioned" : "rounds", state, nets2route.size());
         auto batch_run = grotor::batching::generate_batches_rtcore(state, nets2route, 1000000);
         batches = grotor::batching::finish(state, nets2route, 1000000, std::move(batch_run));
+#elif defined(GROTOR_ENABLE_HIPRT)
+        batches = grotor::hiprt_batching::generate(state, nets2route, 1000000, "lshape");
 #else
         throw std::runtime_error("RT-Core build required");
 #endif

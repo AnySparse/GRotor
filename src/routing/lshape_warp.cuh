@@ -145,20 +145,20 @@ __global__ void Lshape_route_warp(const GROTOR_GRID_CONSTANT RoutingDeviceView v
         }
     }
     for (int step = 16; step; step >>= 1)
-        max_depth = max(max_depth, __shfl_xor_sync(mask, max_depth, step));
-    __syncwarp(mask);
+        max_depth = max(max_depth, gr_shfl_xor_sync(mask, max_depth, step));
+    gr_syncwarp(mask);
     for (int depth = max_depth; depth > 0; --depth) {
         for (int begin = node_cnt - 1; begin > 0; begin -= 32) {
             const int i = begin - lane;
             const bool active = i > 0 && (ranges[i] >> range_bits) == depth;
-            if (!__ballot_sync(mask, active)) continue;
+            if (!gr_ballot_sync(mask, active)) continue;
             const int parent = active ? parents[i] : -1;
-            const unsigned peers = __match_any_sync(mask, parent);
+            const unsigned peers = gr_match_any_sync(mask, parent);
             const unsigned group = active ? peers : 0;
             const bool leader = active && lane == __ffs(group) - 1;
             int max_group = __popc(group);
             for (int step = 16; step; step >>= 1)
-                max_group = max(max_group, __shfl_xor_sync(mask, max_group, step));
+                max_group = max(max_group, gr_shfl_xor_sync(mask, max_group, step));
             double diagonal[10];
             if (!active) for (int layer = 0; layer < L; ++layer) diagonal[layer] = INF;
             if (active) node_diagonal(view, nodes, parents, dist, from, i, diagonal);
@@ -179,7 +179,7 @@ __global__ void Lshape_route_warp(const GROTOR_GRID_CONSTANT RoutingDeviceView v
                         unsigned remaining = group;
                         for (int child = 0; child < max_group; ++child) {
                             const int source = remaining ? __ffs(remaining) - 1 : 0;
-                            const double message = __shfl_sync(mask, contribution, source);
+                            const double message = gr_shfl_sync(mask, contribution, source);
                             if (leader && remaining) value += message;
                             remaining &= remaining - 1;
                         }
@@ -187,7 +187,7 @@ __global__ void Lshape_route_warp(const GROTOR_GRID_CONSTANT RoutingDeviceView v
                     }
                 }
             }
-            __syncwarp(mask);
+            gr_syncwarp(mask);
         }
     }
     if (!lane) {
@@ -197,7 +197,7 @@ __global__ void Lshape_route_warp(const GROTOR_GRID_CONSTANT RoutingDeviceView v
                 if (dist[low * L + high] < dist[choice]) choice = low * L + high;
         ranges[0] = choice;
     }
-    __syncwarp(mask);
+    gr_syncwarp(mask);
     // Trace independent nodes of a depth together. Retain the high depth tag
     // until every level has completed, then restore ordinary range indices.
     for (int depth = 1; depth <= max_depth; ++depth) {
@@ -208,10 +208,10 @@ __global__ void Lshape_route_warp(const GROTOR_GRID_CONSTANT RoutingDeviceView v
             assert(dist[i * L * L + choice] < INF);
             ranges[i] = (depth << range_bits) | choice;
         }
-        __syncwarp(mask);
+        gr_syncwarp(mask);
     }
     for (int i = lane; i < node_cnt; i += 32) ranges[i] &= range_mask;
-    __syncwarp(mask);
+    gr_syncwarp(mask);
     int next = 1;
     for (int begin = 0; begin < node_cnt; begin += 32) {
         const int i = begin + lane;
@@ -225,10 +225,10 @@ __global__ void Lshape_route_warp(const GROTOR_GRID_CONSTANT RoutingDeviceView v
         }
         int prefix = words;
         for (int step = 1; step < 32; step <<= 1) {
-            const int other = __shfl_up_sync(mask, prefix, step);
+            const int other = gr_shfl_up_sync(mask, prefix, step);
             if (lane >= step) prefix += other;
         }
-        const int count = __shfl_sync(mask, prefix, 31);
+        const int count = gr_shfl_sync(mask, prefix, 31);
         assert(size_t(next + count) <= view.ROUTE_PER_PIN * (view.pin_acc_num[net_id + 1] - view.pin_acc_num[net_id]));
         if (i < node_cnt) {
             const int emitted = emit_lshape_node(view, nodes, parents, ranges, from, i,
@@ -240,7 +240,7 @@ __global__ void Lshape_route_warp(const GROTOR_GRID_CONSTANT RoutingDeviceView v
     if (!lane) routes[0] = next;
 #ifdef GROTOR_MULTI_GRID
     if (!view.pre_demand) {
-        __syncwarp(mask);
+        gr_syncwarp(mask);
         graph::commit_net_wires<32>(view, net_id, stamp, lane);
     }
 #endif

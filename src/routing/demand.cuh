@@ -37,7 +37,7 @@ template<int Group> __device__ __forceinline__ void commit_net_wires(
         }
         if (!member) { timestamps[a] = stamp; timestamps[b] = stamp; }
     }
-    for (int d = 16; d; d >>= 1) length += __shfl_down_sync(0xffffffffu, length, d);
+    for (int d = 16; d; d >>= 1) length += gr_shfl_down_sync(0xffffffffu, length, d);
     if (!(member & 31)) atomicAdd(&view.statistics->total_wirelength, length * K);
 }
 
@@ -102,8 +102,8 @@ __global__ void commit_all_edge(RoutingDeviceView view, int stamp) {
     }
     if (view.dirty_wire) {
         const unsigned int active = __activemask();
-        const unsigned int mask = __ballot_sync(active, changed);
-        const unsigned int vertical = __ballot_sync(active, changed && ((l & 1) ^ DIR));
+        const unsigned int mask = gr_ballot_sync(active, changed);
+        const unsigned int vertical = gr_ballot_sync(active, changed && ((l & 1) ^ DIR));
         if (!(threadIdx.x & 31) && mask) {
             const int word = idx >> 5;
             atomicOr(view.dirty_wire + word, mask);
@@ -271,7 +271,7 @@ __global__ void commit_batch_wires(const GROTOR_GRID_CONSTANT RoutingDeviceView 
                 length += along_y ? view.y_edge_len[pos] : view.x_edge_len[pos];
             }
         }
-        for (int step = 16; step; step >>= 1) length += __shfl_down_sync(0xffffffffu, length, step);
+        for (int step = 16; step; step >>= 1) length += gr_shfl_down_sync(0xffffffffu, length, step);
         if (!lane) atomicAdd(&view.statistics->total_wirelength, length * K);
     }
 }
@@ -309,7 +309,7 @@ __global__ void commit_batch_vias(const GROTOR_GRID_CONSTANT RoutingDeviceView v
                 }
             }
         }
-        for (int step = 16; step; step >>= 1) vias += __shfl_down_sync(0xffffffffu, vias, step);
+        for (int step = 16; step; step >>= 1) vias += gr_shfl_down_sync(0xffffffffu, vias, step);
         if (!lane) atomicAdd(&view.statistics->total_via_count, vias * K);
     }
 }

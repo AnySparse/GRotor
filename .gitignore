@@ -16,3 +16,7 @@ __pycache__/
 /baseline/InstantGR2/run/evaluator
 /baseline/cu-gr-2/build/
 /baseline/cu-gr-2/run/
+
+# HIPRT JIT builder cache (relative to the process working directory).
+/cache/
+/resources/flute/cache/

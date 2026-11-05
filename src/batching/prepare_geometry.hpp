@@ -9,7 +9,15 @@ inline bool partitioned(const cudb::RouterState& state, size_t count) {
 }
 #endif
 
-// The CUDA-only build has no geometry types, traversal or storage.
+inline bool geometry_fused(const cudb::RouterState& state) {
+#ifdef GROTOR_ENABLE_RTCORE
+    return state.rtcore_batching;
+#else
+    return false; // HIPRT packs the shared net geometry in its preparation interval.
+#endif
+}
+
+// OptiX fuses geometry packing into topology preparation.
 inline void prepare_geometry(cudb::RouterState& state, const std::vector<int>& order, int lanes) {
 #ifdef GROTOR_ENABLE_RTCORE
     if (state.rtcore_batching)

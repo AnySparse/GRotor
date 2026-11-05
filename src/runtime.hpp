@@ -1,4 +1,5 @@
 #pragma once
+#include "platform/gpu_runtime.hpp"
 #ifndef GROTOR_HOST_MEMORY_SAVING
 #define GROTOR_HOST_MEMORY_SAVING 0
 #endif

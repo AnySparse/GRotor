@@ -8,6 +8,16 @@ Build GRotor and compare its L-shape and FLT routing runtimes and evaluator
 scores with InstantGR2. The main test produces total, batching and routing DAG
 tables, with speedups for both algorithms. Reports and logs are in English.
 
+## AMD HIP
+
+The same routing pipeline now builds on AMD with `GROTOR_GPU_BACKEND=HIP`.
+See [AMD build and benchmarking](docs/amd.md) for HIPRT setup,
+CPU-only builds and `script/benchmark_amd.py`.
+The AMD speedup compares GRotor's own unoptimized and optimized strategies;
+AMD correctness validation compares the optimized and unoptimized GRotor
+strategies, including evaluator metrics and exact per-net segment multisets.
+No AMD InstantGR2 implementation is maintained in this repository.
+
 ## Requirements and setup
 
 Use Linux with:

@@ -1,6 +1,11 @@
 #pragma once
 #include "router_state.hpp"
+#ifdef GROTOR_USE_HIP
+#include <hipcub/hipcub.hpp>
+namespace cub = hipcub;
+#else
 #include <cub/cub.cuh>
+#endif
 #include <type_traits>
 
 namespace grotor::flt {
