@@ -1777,9 +1777,11 @@ void build_cuda_database(RouterState& state) {
 
     state.memory.allocate(&state.device.statistics, sizeof(RoutingStatistics));
     grotor::cuda_check(cudaMemcpy(state.device.statistics, &state.statistics, sizeof(RoutingStatistics), cudaMemcpyHostToDevice), "initialize statistics");
-    state.host.release(temp_int);
-    state.host.release(temp_double);
-    state.host.release(temp_float);
+    if (GROTOR_HOST_MEMORY_SAVING) {
+        state.host.release(temp_int);
+        state.host.release(temp_double);
+        state.host.release(temp_float);
+    }
 }
 
 }

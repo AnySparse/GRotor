@@ -38,8 +38,11 @@ inline void route(cudb::RouterState& state) {
     cudb::build_cuda_database(state);
     bool bounded_preparation = false;
 #ifdef GROTOR_ENABLE_RTCORE
-    bounded_preparation = state.rtcore_batching && batching::partitioned(state, state.nets.size());
+    bounded_preparation = GROTOR_HOST_MEMORY_SAVING && state.rtcore_batching
+        && batching::partitioned(state, state.nets.size());
 #endif
+    printf("HOST_MEMORY_POLICY saving=%d bounded_preparation=%d\n",
+           GROTOR_HOST_MEMORY_SAVING, int(bounded_preparation));
     if (bounded_preparation) {
         // Capacity is already on the device; subnet records have been moved.
         // Keep this policy in the ordinary pipeline: other algorithms may
@@ -109,7 +112,9 @@ inline void route(cudb::RouterState& state) {
     // remain immutable while FLT updates device routes for the other nets.
     output_task = start_output();
     double topology_cleanup_ms = 0;
-    auto topology_cleanup = std::async(std::launch::async,
+    std::future<double> topology_cleanup;
+    if (GROTOR_HOST_MEMORY_SAVING) {
+        topology_cleanup = std::async(std::launch::async,
         [&state, finished = std::move(overflow_nets.second)] {
             const auto begin = Clock::now();
             // FLT accesses only overflow nets. Output uses snapshots and the
@@ -118,6 +123,7 @@ inline void route(cudb::RouterState& state) {
             vector<vector<cudb::net>>().swap(state.tmp_nets);
             return std::chrono::duration<double, std::milli>(Clock::now() - begin).count();
         });
+    }
     if (bounded_preparation) {
         const auto barrier_start = Clock::now();
         // At tera scale, retaining both completed phase-one topology/output

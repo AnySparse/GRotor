@@ -1,4 +1,8 @@
 #pragma once
+#ifndef GROTOR_HOST_MEMORY_SAVING
+#define GROTOR_HOST_MEMORY_SAVING 0
+#endif
+
 #include <unordered_set>
 #include <unordered_map>
 #include <functional>

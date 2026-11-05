@@ -406,7 +406,8 @@ void read(char cap_file_name[], char net_file_name[]) {
             n.init(n.access_points.size(), n.access_points, n.minx, n.maxx, n.miny, n.maxy);
             // Access selection is complete. Routing/output use the selected
             // pins and extra_routes, never the original access-point lists.
-            decltype(n.access_points)().swap(n.access_points);
+            if (GROTOR_HOST_MEMORY_SAVING)
+                decltype(n.access_points)().swap(n.access_points);
         }
         cout << endl;
     };

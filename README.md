@@ -101,12 +101,55 @@ GRotor times one continuous batch-loop interval; InstantGR2 retains its FLT
 GPU-suffix accumulation. Input, source and executable hashes, exact commands,
 hardware details and process wall times are included in `summary.json`.
 
-The CUDA-only path is validated locally on RTX 4090. The A100/H100 configurations
-are cross-compiled locally; hardware validation and multi-GPU execution remain
-separate follow-up work. These
-presets and the current runner select one GPU; they do not implement multi-GPU
-routing. The RT-Core comparison below remains available with `--batching rtcore`
-(the default mode of the system test script).
+The CUDA-only path is validated on RTX 4090; the A100 path has also completed
+`tera_cluster` under a 180 GB host-memory limit. H100 hardware validation remains
+separate follow-up work. These presets and the current runner select one GPU;
+multi-GPU routing uses the separate target and runner below. The RT-Core
+comparison remains available with `--batching rtcore` (the default mode of the
+system test script).
+
+The vendored InstantGR2 reference can also release unused host preprocessing and
+completed output/topology storage to support memory-constrained AE runs on
+large designs. See [its host-memory policy](baseline/InstantGR2/README.md#host-memory-in-the-ae-baseline).
+This preserves its routing kernels, batch plans and GPU timing scopes; dual
+mode continues to time GPU batching and route with the CPU plan.
+
+## Host-memory build options
+
+Two independent CMake options default to `OFF`. A fresh build without these
+options retains end-to-end stage overlap; explicitly enable them when host RAM
+is constrained:
+
+| Option | Target | `ON` | `OFF` |
+|---|---|---|---|
+| `GROTOR_HOST_MEMORY_SAVING` | GRotor targets | Release unused host storage early; wait for completed output/topology before large RT-Core FLT preparation | Skip policy-driven early reclamation and the preparation barrier; retain stage overlap |
+| `INSTANTGR2_HOST_MEMORY_SAVING` | `instantgr2_reference` | Release unused host storage early; wait for output and reclaim completed topology before detour above 16 million tasks | Retain host preprocessing/output data and overlap output with detour |
+
+Use `OFF` when host RAM is sufficient and end-to-end overlap is the priority.
+Use `ON` for memory-constrained AE runs. These options select storage lifetimes
+and scheduling; they do not impose an OS memory limit or guarantee a fixed RAM
+ceiling. The 180 GB measurements above used an external cgroup limit.
+Routing kernels, batching algorithms and algorithm timing scopes are unchanged.
+Normal resource cleanup, compact FLT storage, streaming and partitioned RT-Core
+scenes remain available in both builds. Any preparation wait contributes to
+complete process wall time, outside GPU batching and DAG timing scopes.
+
+For example, enable both policies in an independent A100 build:
+
+```bash
+cmake --preset a100 -B build/a100-memory-saving \
+  -DCMAKE_CUDA_COMPILER=/usr/local/cuda-12.2/bin/nvcc \
+  -DGROTOR_HOST_MEMORY_SAVING=ON -DINSTANTGR2_HOST_MEMORY_SAVING=ON
+cmake --build build/a100-memory-saving --target GRotor instantgr2_reference --parallel 2
+```
+
+Use `--preset rtx4090` and supply `OPTIX_ROOT_DIR` for an RT-Core build.
+CMake preserves values in existing build directories: if previously enabled,
+explicitly set the corresponding option to `OFF` and rebuild, or use a fresh
+build directory. Routing logs record `HOST_MEMORY_POLICY saving=0|1` and
+`bounded_preparation=0|1`. Direct nvcc builds also default to disabled; explicitly
+pass `-DGROTOR_HOST_MEMORY_SAVING=1` or
+`-DINSTANTGR2_HOST_MEMORY_SAVING=1` to enable the corresponding policy.
 
 ## NVSHMEM L-shape scaling (A100)
 
@@ -283,11 +326,13 @@ publication, collection and scene cleanup. Topology/2-D geometry generation and
 pipeline compilation/warm-up precede it; `BATCH_PREPARATION` separately records
 preparation, final cleanup and complete call time.
 
-Pin-access candidates are released after selection for all designs, since only
+With `GROTOR_HOST_MEMORY_SAVING=ON`, pin-access candidates are released after selection for all designs, since only
 selected pins remain in use. Large RT-Core designs additionally release uploaded
 host capacity and moved subnet staging, and wait for completed L-shape output and
 topology cleanup before preparing FLT. This bounds host RAM overlap; the wait is
-logged as `HOST_PREPARATION_BARRIER`. Small designs retain stage overlap. Long
+logged as `HOST_PREPARATION_BARRIER`. Small designs retain stage overlap.
+With the option `OFF`, these early releases and the large-design barrier are
+skipped; partitioned RT-Core batching still follows the same policy. Long
 Fenwick tracks store only odd BIT nodes in shared memory, allowing tera's grid
 width to fit the GPU block limit without changing summation order.
 

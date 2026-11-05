@@ -63,9 +63,11 @@ void prepare_detour_topology(RouterState& state, vector<int>& nets2route) {
     state.flt_topology.begin(nets2route, nets.size(), 8);
     grotor::batching::prepare_geometry(state, nets2route, 8);
     multithreaded_processing(state, nets2route);
-    state.host.release(packing.congestionView_cpu);
-    state.host.release(packing.congestionView_xsum_cpu);
-    state.host.release(packing.congestionView_ysum_cpu);
+    if (GROTOR_HOST_MEMORY_SAVING) {
+        state.host.release(packing.congestionView_cpu);
+        state.host.release(packing.congestionView_xsum_cpu);
+        state.host.release(packing.congestionView_ysum_cpu);
+    }
     printf("TOPOLOGY_TIMING stage=flt elapsed_ms=%.6f geometry_fused=%d\n",
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - topology_start).count(), int(state.rtcore_batching));
 }
@@ -99,14 +101,17 @@ void route_prepared_topology(RouterState& state, vector<int>& nets2route,
     {
         grotor::flt::Plans plans(state.flt_topology, batches);
 #ifndef GROTOR_ENABLE_NVSHMEM
-        std::vector<int>().swap(state.flt_topology.net_to_slot);
+        if (GROTOR_HOST_MEMORY_SAVING)
+            std::vector<int>().swap(state.flt_topology.net_to_slot);
 #endif
         // Batching and its optional validation have consumed all geometric input.
-        for (int id : nets2route) {
-            std::vector<std::vector<int>>().swap(nets[id].rsmt);
-            std::vector<std::pair<int, int>>().swap(nets[id].rsmt_h_segments);
-            std::vector<std::pair<int, int>>().swap(nets[id].rsmt_v_segments);
-            std::vector<int>().swap(nets[id].points);
+        if (GROTOR_HOST_MEMORY_SAVING) {
+            for (int id : nets2route) {
+                std::vector<std::vector<int>>().swap(nets[id].rsmt);
+                std::vector<std::pair<int, int>>().swap(nets[id].rsmt_h_segments);
+                std::vector<std::pair<int, int>>().swap(nets[id].rsmt_v_segments);
+                std::vector<int>().swap(nets[id].points);
+            }
         }
 #ifdef GROTOR_SERIAL_DAG
         const auto global_depths = prepare_global_depths(state.flt_topology, plans);
@@ -127,7 +132,7 @@ void route_prepared_topology(RouterState& state, vector<int>& nets2route,
         routing_view.pre_demand = nullptr;
 #endif
         workspace.upload(state.flt_topology, plans);
-        if (!workspace.streamed) {
+        if (GROTOR_HOST_MEMORY_SAVING && !workspace.streamed) {
             grotor::cuda_check(cudaEventSynchronize(workspace.ready.value), "release uploaded FLT host topology");
             state.flt_topology.clear();
         }

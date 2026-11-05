@@ -231,6 +231,14 @@ void output_nets() {
         }
         putc_unlocked(')', out_file);
         putc_unlocked('\n', out_file);
+        // This original net has been written once and has no routing work left.
+        if (INSTANTGR2_HOST_MEMORY_SAVING) {
+            auto& written = db::nets[_];
+            string().swap(written.name);
+            vector<int>().swap(written.pins);
+            vector<int>().swap(written.extra_routes);
+            vector<int>().swap(written.subnets);
+        }
     }
 }
 

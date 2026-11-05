@@ -21,6 +21,9 @@ void async_cuda_init() {
 
 void route() {
     build_cuda_database();
+    const bool bounded_host_memory = INSTANTGR2_HOST_MEMORY_SAVING && nets.size() > 16000000;
+    printf("HOST_MEMORY_POLICY saving=%d bounded_preparation=%d\n",
+           INSTANTGR2_HOST_MEMORY_SAVING, int(bounded_host_memory));
     for(int i = 0; i < db::nets.size(); i++)
         if(db::nets[i].pins.size() == 1) nets2output.push(i);
     thread output_thread1(graph::output_nets);
@@ -31,6 +34,7 @@ void route() {
     nets2route_all.resize(nets.size());
     for(int i = 0; i < nets.size(); i++) nets2route_all[i] = i;
     Lshape_route::Lshape_route(nets2route_all);
+    if (INSTANTGR2_HOST_MEMORY_SAVING) vector<int>().swap(nets2route_all);
     if(LOG) graph::report_score();
     output_thread1.join();
 
@@ -65,9 +69,21 @@ void route() {
             exit(EXIT_FAILURE);
         }
     }
+    if (bounded_host_memory) {
+        const double barrier_start = elapsed_time();
+        // Output reads the saved routes, while the detour builder only needs
+        // overflow subnets. Finish output before releasing completed objects.
+        output_thread2.join();
+        for (int id : of_nets.second) nets[id] = cudb::net{};
+        vector<int>().swap(of_nets.second);
+        trim_host_memory();
+        printf("HOST_PREPARATION_BARRIER elapsed_ms=%.3f completed_topology_released=1\n",
+               (elapsed_time() - barrier_start) * 1000.);
+        fflush(stdout);
+    }
     Lshape_route_detour::Lshape_route_detour_wrap(of_nets.first);
     if(LOG) graph::report_score();
-    output_thread2.join();
+    if (output_thread2.joinable()) output_thread2.join();
     graph::finish_nets(of_nets.first);
     graph::output_nets();
 }

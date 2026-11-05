@@ -732,9 +732,10 @@ void Lshape_route_detour_wrap(vector<int> &nets2route) {
     sort(nets2route.begin(), nets2route.end(), [] (int l, int r) {
         return nets[l].hpwl > nets[r].hpwl;
     });
-    congestionView_cpu = new bool[X * Y * sizeof(bool)];
-    congestionView_xsum_cpu = new float[X * Y * sizeof(float)];
-    congestionView_ysum_cpu = new float[X * Y * sizeof(float)];
+    const size_t cells = size_t(X) * Y;
+    congestionView_cpu = new bool[cells];
+    congestionView_xsum_cpu = new float[cells];
+    congestionView_ysum_cpu = new float[cells];
     cudaMemcpy(congestionView_cpu, congestion, X * Y * sizeof(bool), cudaMemcpyDeviceToHost);
     cudaMemcpy(congestionView_xsum_cpu, congestion_xsum, X * Y * sizeof(float), cudaMemcpyDeviceToHost);
     cudaMemcpy(congestionView_ysum_cpu, congestion_ysum, X * Y * sizeof(float), cudaMemcpyDeviceToHost);
@@ -746,6 +747,12 @@ void Lshape_route_detour_wrap(vector<int> &nets2route) {
         }
     }
     multithreaded_processing(nets2route);
+    // All topology workers have joined; batching and DP use their results.
+    if (INSTANTGR2_HOST_MEMORY_SAVING) {
+        delete[] congestionView_cpu; congestionView_cpu = nullptr;
+        delete[] congestionView_xsum_cpu; congestionView_xsum_cpu = nullptr;
+        delete[] congestionView_ysum_cpu; congestionView_ysum_cpu = nullptr;
+    }
     if(LOG) printf("[%5.1f] Generating h,v segments Ends\n", elapsed_time());
     if(LOG) printf("[%5.1f] Generating batches Starts\n", elapsed_time());
     auto batches = generate_batches_rsmt_selected(nets2route, 300000);
@@ -863,6 +870,8 @@ void Lshape_route_detour_wrap(vector<int> &nets2route) {
     cudaFree(packed_information);
     cudaFree(best_path);
     delete[] congestionView_cpu;
+    delete[] congestionView_xsum_cpu;
+    delete[] congestionView_ysum_cpu;
     delete[] node_cnt_sum_cpu;
     delete[] node_depth_cpu;
     delete[] net_depth_cpu;
@@ -878,6 +887,7 @@ void Lshape_route_detour_wrap(vector<int> &nets2route) {
     delete[] par_num_sum_cpu;
     delete[] par_nodes_cpu;
     delete[] currentChildIDX_cpu;
+    delete[] depthID2nodeSequence;
     if(LOG) printf("[%5.1f] Lshape_route Ends\n", elapsed_time());
     DAG_time = elapsed_time() - DAG_start_time;
 }

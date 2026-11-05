@@ -8,6 +8,11 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
+option(GROTOR_HOST_MEMORY_SAVING "Release unused host storage early and bound preparation overlap" OFF)
+option(INSTANTGR2_HOST_MEMORY_SAVING "Release unused baseline host storage early and bound preparation overlap" OFF)
+# Also cover GRotor experiment targets that do not link grotor_options.
+add_compile_definitions(GROTOR_HOST_MEMORY_SAVING=$<BOOL:${GROTOR_HOST_MEMORY_SAVING}>)
+
 add_library(grotor_options INTERFACE)
 target_include_directories(grotor_options INTERFACE include src third_party)
 # Preserve floating-point semantics; keep fast math disabled.
@@ -239,6 +244,8 @@ set_source_files_properties(baseline/InstantGR2/src/main.cpp PROPERTIES LANGUAGE
 add_executable(instantgr2_reference baseline/InstantGR2/src/main.cpp)
 set_target_properties(instantgr2_reference PROPERTIES CUDA_STANDARD 17 CUDA_STANDARD_REQUIRED YES)
 target_compile_options(instantgr2_reference PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-O3;-UNDEBUG>)
+target_compile_definitions(instantgr2_reference PRIVATE
+    INSTANTGR2_HOST_MEMORY_SAVING=$<BOOL:${INSTANTGR2_HOST_MEMORY_SAVING}>)
 
 # The ordinary single-GPU targets have no MPI/NVSHMEM dependency.
 option(GROTOR_BUILD_MULTIGPU "Build NVLink/NVSHMEM last-batch parallel routing" OFF)

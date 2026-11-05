@@ -2185,9 +2185,13 @@ __global__ void setArrayValue(int* arr, int size, int value) {
 
 void build_cuda_database() {
     const int MAX_LEN_INT = 1700000000, MAX_LEN_DOUBLE = 1700000000;
-    static int *temp_int = new int[MAX_LEN_INT];
-    static double *temp_double = new double[MAX_LEN_DOUBLE];
-    static float *temp_float = new float[MAX_LEN_DOUBLE];
+    // Retain staging for process lifetime in the overlap-oriented build.
+    static std::unique_ptr<int[]> int_staging(new int[MAX_LEN_INT]);
+    static std::unique_ptr<double[]> double_staging(new double[MAX_LEN_DOUBLE]);
+    static std::unique_ptr<float[]> float_staging(new float[MAX_LEN_DOUBLE]);
+    int *temp_int = int_staging.get();
+    double *temp_double = double_staging.get();
+    float *temp_float = float_staging.get();
     temp_int[0] = 1;
     temp_double[0] = 1.0;
     temp_float[0] = 1.0;
@@ -2325,6 +2329,9 @@ void build_cuda_database() {
             nets.emplace_back(move(nnet));
         }
     }
+    // All subnet records have moved to nets; release the empty source shells.
+    if (INSTANTGR2_HOST_MEMORY_SAVING)
+        vector<vector<net>>().swap(tmp_nets);
     pin_cnt_sum_cpu.reserve(1 + nets.size());
     pin_cnt_sum_cpu.resize(1 + nets.size(), 0);
     pin_cnt_sum_phase2_cpu.reserve(1 + nets.size());
@@ -2378,6 +2385,9 @@ void build_cuda_database() {
                 temp_float[IDX(l, x, y)] = db::capacity[l + 1][x][y];
     cudaMalloc(&capacity, L * X * Y * sizeof(float));
     cudaMemcpy(capacity, temp_float, L * X * Y * sizeof(float), cudaMemcpyHostToDevice);
+    // Later routing reads device capacity, never this input-side copy.
+    if (INSTANTGR2_HOST_MEMORY_SAVING)
+        decltype(db::capacity)().swap(db::capacity);
     
 
     cudaMalloc(&pin_acc_num, (1 + NET_NUM) * sizeof(int));
@@ -2449,6 +2459,12 @@ void build_cuda_database() {
     cudaMemset(pre_demand, 0, sizeof(int) * L * X * Y);
 
     net_ids_cpu = new int[NET_NUM];
+    if (INSTANTGR2_HOST_MEMORY_SAVING) {
+        int_staging.reset();
+        double_staging.reset();
+        float_staging.reset();
+        trim_host_memory();
+    }
 }
 
 }
