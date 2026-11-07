@@ -7,6 +7,11 @@
 BSD 3-Clause license and Copyright (c) 2024, CUHK EDA notice in
 [baseline/InstantGR2/LICENSE](baseline/InstantGR2/LICENSE).
 
+The shared evaluator in `resources/evaluator.cpp` comes from that snapshot's
+`run/evaluator.cpp` and is covered by the BSD 3-Clause license and
+Copyright (c) 2024, CUHK EDA notice in [third_party/LICENSE](third_party/LICENSE).
+Only its successful/error process exit statuses were normalized; scoring is unchanged.
+
 Local modifications include deterministic congestion reduction, CPU/GPU/dual
 batching selection, a sparsity override, routing runtime instrumentation, and
 cleanup of temporary GPU batching allocations. See
@@ -50,8 +55,7 @@ Copyright (c) 2022 BSD 3-Clause notice in
 for provenance; it is not claimed as a fetched upstream release.
 
 GRotor's Z-shape recurrence and adapter routines in `src/routing/zshape.cuh`
-and `src/routing/zshape_topology.hpp`, and the test oracle in
-`script/tests/zshape_reference.cuh`, are derived from GGR and the earlier
+and `src/routing/zshape_topology.hpp` are derived from GGR and the earlier
 local routing adapter. They remain subject to that BSD 3-Clause notice.
 Local baseline modifications and the relevant publications are documented in
 [baseline/GGR/README.md](baseline/GGR/README.md) and its retained GGR README.

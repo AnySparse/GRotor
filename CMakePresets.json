@@ -8,9 +8,9 @@
   "configurePresets": [
     {
       "name": "cuda",
-      "displayName": "CUDA routing with CPU batching",
+      "displayName": "CUDA routing with CPU batching fallback",
       "generator": "Unix Makefiles",
-      "binaryDir": "${sourceDir}/build/GRotor-cuda/sm_89",
+      "binaryDir": "${sourceDir}/build/GRotor/sm_89",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "GROTOR_ENABLE_RTCORE": "OFF",
@@ -24,34 +24,46 @@
     },
     {
       "name": "a100",
-      "displayName": "A100 CUDA routing with CPU batching",
+      "displayName": "A100 CUDA routing with CPU batching fallback",
       "inherits": "cuda",
-      "binaryDir": "${sourceDir}/build/GRotor-cuda/sm_80",
+      "binaryDir": "${sourceDir}/build/GRotor/sm_80",
       "cacheVariables": {
         "CMAKE_CUDA_ARCHITECTURES": "80"
       }
     },
     {
       "name": "h100",
-      "displayName": "H100 CUDA routing with CPU batching",
+      "displayName": "H100 CUDA routing with CPU batching fallback",
       "inherits": "cuda",
-      "binaryDir": "${sourceDir}/build/GRotor-cuda/sm_90",
+      "binaryDir": "${sourceDir}/build/GRotor/sm_90",
       "cacheVariables": {
         "CMAKE_CUDA_ARCHITECTURES": "90"
       }
     },
     {
       "name": "rtx4090",
-      "displayName": "RTX 4090 routing with RT-Core batching available",
+      "displayName": "RTX 4090 routing with RT-Core batching",
       "inherits": "cuda",
-      "binaryDir": "${sourceDir}/build/GRotor-rtcore/sm_89",
+      "binaryDir": "${sourceDir}/build/GRotor/sm_89",
       "cacheVariables": {
         "GROTOR_ENABLE_RTCORE": "ON"
       }
     },
     {
+      "name": "rtxpro6000",
+      "displayName": "RTX PRO 6000 Blackwell single-GPU routing with RT-Core batching",
+      "inherits": "cuda",
+      "binaryDir": "${sourceDir}/build/GRotor/sm_120",
+      "cacheVariables": {
+        "CMAKE_CUDA_ARCHITECTURES": "120",
+        "GROTOR_ENABLE_RTCORE": "ON",
+        "GROTOR_BUILD_MULTIGPU": "OFF",
+        "GROTOR_BUILD_INSTANTGR2": "ON"
+      }
+    },
+    {
       "name": "hip",
-      "displayName": "AMD HIP with CPU batching (gfx1200)",
+      "displayName": "AMD HIP with CPU batching fallback (gfx1200)",
       "generator": "Unix Makefiles",
       "binaryDir": "${sourceDir}/build/hip-cpu",
       "cacheVariables": {
@@ -60,7 +72,8 @@
         "CMAKE_HIP_ARCHITECTURES": "gfx1200",
         "GROTOR_ENABLE_RTCORE": "OFF",
         "GROTOR_ENABLE_HIPRT": "OFF",
-        "GROTOR_HOST_MEMORY_SAVING": "OFF"
+        "GROTOR_HOST_MEMORY_SAVING": "OFF",
+        "GROTOR_BUILD_ROUTING_ABLATION": "OFF"
       }
     },
     {
@@ -71,6 +84,26 @@
       "cacheVariables": {
         "GROTOR_ENABLE_HIPRT": "ON",
         "HIPRT_ROOT": "$env{HIPRT_ROOT}"
+      }
+    },
+    {
+      "name": "multi-a100",
+      "displayName": "NVSHMEM routing on A100",
+      "inherits": "a100",
+      "binaryDir": "${sourceDir}/build/GRotor-multi/sm_80",
+      "cacheVariables": {
+        "GROTOR_BUILD_MULTIGPU": "ON",
+        "GROTOR_BUILD_INSTANTGR2": "OFF"
+      }
+    },
+    {
+      "name": "multi-h100",
+      "displayName": "NVSHMEM routing on H100",
+      "inherits": "h100",
+      "binaryDir": "${sourceDir}/build/GRotor-multi/sm_90",
+      "cacheVariables": {
+        "GROTOR_BUILD_MULTIGPU": "ON",
+        "GROTOR_BUILD_INSTANTGR2": "OFF"
       }
     }
   ],
@@ -116,14 +149,50 @@
       ]
     },
     {
+      "name": "rtxpro6000",
+      "configurePreset": "rtxpro6000",
+      "jobs": 2,
+      "targets": [
+        "GRotor",
+        "instantgr2_reference",
+        "grotor_evaluator"
+      ]
+    },
+    {
       "name": "hip",
       "configurePreset": "hip",
-      "jobs": 2
+      "jobs": 2,
+      "targets": [
+        "GRotor",
+        "grotor_evaluator"
+      ]
     },
     {
       "name": "hiprt",
       "configurePreset": "hiprt",
-      "jobs": 2
+      "jobs": 2,
+      "targets": [
+        "GRotor",
+        "grotor_evaluator"
+      ]
+    },
+    {
+      "name": "multi-a100",
+      "configurePreset": "multi-a100",
+      "jobs": 2,
+      "targets": [
+        "GRotor_multi",
+        "grotor_evaluator"
+      ]
+    },
+    {
+      "name": "multi-h100",
+      "configurePreset": "multi-h100",
+      "jobs": 2,
+      "targets": [
+        "GRotor_multi",
+        "grotor_evaluator"
+      ]
     }
   ]
 }

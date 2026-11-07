@@ -1,7 +1,7 @@
 #pragma once
 #include "preprocess.hpp"
 #include "batching/generate_batches_cpu.hpp"
-#include "lshape_thread_oracle.cuh"
+#include "routing/lshape_thread.cuh"
 #include "routing/lshape_warp.cuh"
 #include "output_writer.hpp"
 #include <filesystem>

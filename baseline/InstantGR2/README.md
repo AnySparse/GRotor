@@ -38,7 +38,7 @@ Example:
 
 ## Benchmarks
 
-### Host memory in the AE baseline
+### Host Memory Saving
 
 With `INSTANTGR2_HOST_MEMORY_SAVING=ON` (explicitly enabled), this vendored baseline
 releases pin-access candidates after selecting pins,

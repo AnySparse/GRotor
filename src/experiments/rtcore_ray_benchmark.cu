@@ -19,13 +19,13 @@ int main(int argc,char** argv) {
             else if (key=="--net")net=value;
             else if (key=="--output-dir")output=value;
             else if (key=="--lut-dir")lut=value;
-            else throw std::invalid_argument("Unknown Fig7 argument: "+key);
+            else throw std::invalid_argument("Unknown blocker benchmark argument: "+key);
         }
-        if (cap.empty() || net.empty() || output.empty()) throw std::invalid_argument("Missing Fig7 input/output argument");
+        if (cap.empty() || net.empty() || output.empty()) throw std::invalid_argument("Missing blocker benchmark input/output argument");
         const std::filesystem::path folder(output);
         std::filesystem::create_directories(folder);
         program_start=std::chrono::high_resolution_clock::now();
-        grotor::cuda_check(cudaFree(nullptr),"initialize Fig7 CUDA");
+        grotor::cuda_check(cudaFree(nullptr),"initialize blocker benchmark CUDA");
         db::read(cap.data(),net.data());
         // The microbenchmark requires pin coordinates, not the routing cost grid.
         decltype(db::capacity)().swap(db::capacity);
@@ -63,9 +63,9 @@ int main(int argc,char** argv) {
             });
         state.rtcore_geometry.clear();
         const auto cpu=cudb::generate_batches_rsmt(state,order,1000000,1);
-        if (cpu!=result.batches) throw std::runtime_error("Fig7 batch lists differ from CPU batching");
+        if (cpu!=result.batches) throw std::runtime_error("blocker benchmark batch lists differ from CPU batching");
         std::ofstream counts(folder/"ray-counts.csv"),stats(folder/"round-stats.csv"),checks(folder/"checks.json");
-        if (!counts || !stats || !checks) throw std::runtime_error("Cannot create Fig7 output files");
+        if (!counts || !stats || !checks) throw std::runtime_error("Cannot create blocker benchmark output files");
         counts<<"without_blocker,with_blocker\n";
         stats<<"iteration,without_blocker,with_blocker,unassigned_before,unassigned_after,assigned_this_round\n";
         unsigned long long without=0,with=0;
@@ -83,5 +83,5 @@ int main(int argc,char** argv) {
             <<"  \"same_iteration_count\": true,\n  \"exact_assignment_rounds\": true,\n  \"exact_batch_ids\": true,\n  \"exact_cpu_batch_lists\": true\n}\n";
         printf("RTCORE_RAY_CHECK iterations=%zu nets=%zu exact_rounds=1 exact_batch_ids=1 exact_cpu_lists=1\n",result.with_blocker.size(),order.size());
         return 0;
-    } catch (const std::exception& e) {fprintf(stderr,"Fig7 error: %s\n",e.what());return 1;}
+    } catch (const std::exception& e) {fprintf(stderr,"blocker benchmark error: %s\n",e.what());return 1;}
 }

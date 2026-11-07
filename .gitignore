@@ -12,7 +12,8 @@
 __pycache__/
 *.py[cod]
 
-# Build the evaluator from source instead of tracking its bundled executable.
+# Framework-wide evaluator is compiled locally.
+/resources/evaluator
 /baseline/InstantGR2/run/evaluator
 /baseline/cu-gr-2/build/
 /baseline/cu-gr-2/run/

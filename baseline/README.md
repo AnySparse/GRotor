@@ -14,8 +14,7 @@ This copy includes the following local changes:
   grid cell, replacing concurrent writes to the same congestion cell.
 - CPU, GPU and dual batching modes, plus an optional sparsity override. Dual
   mode measures both implementations and uses the CPU plan for routing.
-- Synchronized batching and routing-DAG timing. L-shape measures its batch
-  loop; FLT sums the GPU suffix time of each batch, excluding CPU DAG packing.
+- Synchronized batching and routing-DAG timing. L-shape measures its batch loop; FLT sums the GPU suffix time of each batch.
 - Release of temporary GPU batching buffers and removal of a non-English
   comment.
 
@@ -70,10 +69,9 @@ For the GRotor CUGR2 adapter, build and run commands are documented in
 the main README's Table 3 section. L-shape uses warp scheduling; detour and
 maze layer assignment use block scheduling. All use incremental cost/BIT
 updates. All three comparison times include measured RT-Core batching plus
-the complete GPU batch-execution/update interval. Maze topology search runs
-on eight CPU workers outside this comparison interval. Worsening candidates
-restore a bounded checkpoint of the previous routes and demand; search,
-quality checks and restoration remain in separate full-phase diagnostics.
+the complete GPU batch-execution/update interval. Maze topology search uses
+eight CPU workers. Worsening candidates restore a bounded checkpoint of the
+previous routes and demand.
 Inputs and intermediate topologies differ
 from the CPU baseline; compare stage task scales rather than output equality.
 
