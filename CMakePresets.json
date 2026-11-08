@@ -87,6 +87,22 @@
       }
     },
     {
+      "name": "rx7900-cpu",
+      "displayName": "RX 7900 XTX HIP routing with CPU batching (gfx1100)",
+      "inherits": "hip",
+      "cacheVariables": {
+        "CMAKE_HIP_ARCHITECTURES": "gfx1100"
+      }
+    },
+    {
+      "name": "rx7900",
+      "displayName": "RX 7900 XTX HIPRT routing (gfx1100; set HIPRT_ROOT)",
+      "inherits": "hiprt",
+      "cacheVariables": {
+        "CMAKE_HIP_ARCHITECTURES": "gfx1100"
+      }
+    },
+    {
       "name": "multi-a100",
       "displayName": "NVSHMEM routing on A100",
       "inherits": "a100",
@@ -175,6 +191,16 @@
         "GRotor",
         "grotor_evaluator"
       ]
+    },
+    {
+      "name": "rx7900-cpu",
+      "configurePreset": "rx7900-cpu",
+      "inherits": "hip"
+    },
+    {
+      "name": "rx7900",
+      "configurePreset": "rx7900",
+      "inherits": "hiprt"
     },
     {
       "name": "multi-a100",

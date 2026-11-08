@@ -240,19 +240,19 @@ Compare GRotor's unoptimized and HIPRT-optimized strategies;
 no AMD InstantGR2 baseline is used. Validation checks exact batch lists,
 evaluator scores and per-net geometry before timed runs.
 
-For HIP with CPU batching as a fallback, build with `cmake --preset hip` followed by
-`cmake --build --preset hip`. For the HIPRT experiment:
+The primary AMD configuration is RX 7900 XTX (`gfx1100`). For the HIPRT experiment:
 
 ```bash
 export HIPRT_ROOT=/path/to/HIPRT
 export HIPRT_PATH="$HIPRT_ROOT"
-cmake --preset hiprt -DGROTOR_BUILD_ROUTING_ABLATION=ON
+cmake --preset rx7900 -DGROTOR_BUILD_ROUTING_ABLATION=ON
 cmake --build build/hip --target GRotor grotor_amd_original grotor_evaluator -j2
 python3 script/experiments/run_amd.py --data-dir /path/to/cap-net-files \
   --results results/amd --repeats 3 --warmups 1
 ```
 
-HIP presets default to `gfx1200`; override with `-DCMAKE_HIP_ARCHITECTURES=<arch>`.
+For other AMD GPUs, see the [preset list](docs/amd.md#build) or override
+`CMAKE_HIP_ARCHITECTURES` during configuration.
 Extension builds do not compile baselines.
 The runner saves all samples, per-case medians, geometric means and
 `amd-speedup.pdf/png`. `--plot-only --results <directory>` regenerates the
