@@ -15,14 +15,13 @@ This copy includes the following local changes:
 - CPU, GPU and dual batching modes, plus an optional sparsity override. Dual
   mode measures both implementations and uses the CPU plan for routing.
 - Synchronized batching and routing-DAG timing. L-shape measures its batch loop; FLT sums the GPU suffix time of each batch.
-- Release of temporary GPU batching buffers and removal of a non-English
-  comment.
+- Release of temporary GPU batching buffers.
 
 The original project documentation is retained in
 [InstantGR2/README.md](InstantGR2/README.md). See the
 [main README](../README.md) for building and running the comparison scripts.
-The evaluator is built from `InstantGR2/run/evaluator.cpp`; the bundled
-executable is excluded from version control.
+The shared evaluator is built from `resources/evaluator.cpp` in the repository
+root; the executable is excluded from version control.
 
 ### Publication and License
 
@@ -66,7 +65,8 @@ outputs. Run the router with `cu-gr-2/flute/` as its working directory so its
 lookup tables resolve. The comparison script handles this automatically.
 
 For the GRotor CUGR2 adapter, build and run commands are documented in
-the main README's Table 3 section. L-shape uses warp scheduling; detour and
+the main README's [Other Routing Baselines](../README.md#32-other-routing-baselines)
+section. L-shape uses warp scheduling; detour and
 maze layer assignment use block scheduling. All use incremental cost/BIT
 updates. All three comparison times include measured RT-Core batching plus
 the complete GPU batch-execution/update interval. Maze topology search uses
@@ -85,6 +85,13 @@ upstream information and [cu-gr-2/LICENSE](cu-gr-2/LICENSE) for its CU-SD licens
 requirements needed to run it on LEF/DEF inputs. The local snapshot revision,
 retained licenses, inherited instrumentation and build instructions are
 recorded in [GGR/README.md](GGR/README.md). No placement application or nested
-Git checkout is included. Run `python3 script/compare_ggr.py --case mempool_tile`
-from the repository root to build and compare its Z-shape stage with GRotor.
+Git checkout is included. From the repository root, build and compare its
+Z-shape stage with GRotor:
+
+```bash
+python3 script/experiments/compare_ggr.py --case mempool_tile \
+  --data-dir /path/to/cap-net-files \
+  --lef /path/to/technology.lef --def-dir /path/to/def-files
+```
+
 Maze routing is disabled in this experiment.

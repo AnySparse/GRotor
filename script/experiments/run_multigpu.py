@@ -124,7 +124,7 @@ def main(argv=None):
             if busy:
                 raise RuntimeError('Selected GPU has another compute process: ' + '; '.join(busy))
         result['runner_sha256'] = sha256(Path(__file__))
-        result['timing_scope'] = 'my-gr-cuda-event'
+        result['timing_scope'] = 'cuda-event'
         result['reporting_sha256'] = sha256(ROOT / 'script/experiments/_multigpu_report.py')
         validate_luts()
         if not args.no_build:

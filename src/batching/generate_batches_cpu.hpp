@@ -18,7 +18,6 @@ vector<vector<int>> generate_batches_rsmt(RouterState& state, vector<int> &nets2
     auto _time = elapsed_time();
     vector<vector<int>> batches;
     vector<vector<bool>> batch_vis;
-    // vector<int> lookupTable(X * Y, 0);
    
     auto has_conflict = [&] (int net_id, int batch_id) {
 

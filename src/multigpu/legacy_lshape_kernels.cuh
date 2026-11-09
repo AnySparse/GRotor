@@ -1,11 +1,10 @@
 #pragma once
-// Faithful L-shape execution port from GRaptor_multi, with InstantGR2 costs.
-// Original files: common/operator.cuh and L_shape_route_inc_warp_centric_nvshmem.hpp.
-// BFS layout, scratch reuse, separate commits and full
-// matrix P2P indexing are retained for every GPU count, including one.
+// Distributed routing kernels with BFS layout, reusable scratch storage,
+// separate demand commits and full-matrix peer indexing at every GPU count.
+// Source attribution and license notices are retained in NOTICE.md.
 namespace grotor::multi::legacy {
 constexpr int block_size = 256, warp_size = 32, blocks = 1056;
-using demandType = int; // Doubled units: wire=2, half-via=1, as in the legacy code.
+using demandType = int; // Doubled units: wire=2, half-via=1.
 struct P2PContext {
     float* vcost[8]{};
     double* presum[8]{};

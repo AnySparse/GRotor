@@ -25,7 +25,7 @@ inline void reserve_reroute_storage(cudb::RouterState& state, const std::vector<
     }
     const auto stride = std::max(old_stride, minimum_stride);
     if (!view.routes_phase2 || old_pins != view.PIN_NUM_PHASE2 || old_stride != stride) {
-        // Reuse the eventual output snapshot as the migration buffer. Never
+        // Reuse the output snapshot as the route-transfer buffer. Never
         // hold two complete phase-two device route allocations simultaneously.
         if (view.routes_phase2) {
             const int new_pins = view.PIN_NUM_PHASE2;

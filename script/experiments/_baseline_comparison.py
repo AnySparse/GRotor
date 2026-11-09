@@ -69,7 +69,7 @@ def main(kind):
             vals=[row['baseline_ms'],row['grotor_ms'],row['speedup']]
             lines.append('| '+row['dataset']+' | '+row['algorithm']+' | '+' | '.join('-' if v is None else f'{v:.3f}' for v in vals)+' | '+row['status']+' |')
         lines += ['', 'Times are medians across repeats. GRotor runtime = batching + routing DAG execution. Native CUGR2 measures solver/commit; native GGR includes batching and its GPU routing kernel sum.',
-            'CUGR2 Maze CPU topology search and quality restoration are outside the GRotor comparison interval. Native and adapted inputs use different resource models; task counts remain in runtime.csv.',
+            'Native and adapted inputs use different resource models; task counts remain in runtime.csv.',
             'Incomplete or timed-out stages have no runtime/speedup. External evaluator scores are neither run nor compared.']
         for case in result['cases']:
             if case.get('error'):lines += ['',case['name']+': '+case['error']]

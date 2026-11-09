@@ -26,14 +26,18 @@ Example:
 ```
 
 ## Evaluate
+
+From the GRotor repository root:
+
 ```bash
-cd run
-g++ -o evaluator evaluator.cpp -O3 -std=c++17 #compile the evaluator
-./evaluator <cap_file_path> <net_file_path> <output_path> # run the evaluator
+g++ -O3 -UNDEBUG -std=c++17 resources/evaluator.cpp -o resources/evaluator
+resources/evaluator <cap_file_path> <net_file_path> <output_path>
 ```
 Example:
 ```bash
-./evaluator ../benchmarks/mempool_tile_rank.cap ../benchmarks/mempool_tile_rank.net mempool_tile_rank.out
+resources/evaluator baseline/InstantGR2/benchmarks/mempool_tile_rank.cap \
+  baseline/InstantGR2/benchmarks/mempool_tile_rank.net \
+  baseline/InstantGR2/run/mempool_tile_rank.out
 ```
 
 ## Benchmarks

@@ -6,8 +6,7 @@
 namespace graph {
 
 #ifdef GROTOR_MULTI_GRID
-// Cooperative segment commits mirror the legacy NVSHMEM executor: lanes walk
-// a wire together, rather than one thread serializing an arbitrarily long net.
+// Lanes cooperatively commit each segment's wire demand.
 // DP reads an immutable cost snapshot, so wire commits may follow each net's
 // traceback. A global barrier still separates all wires from all vias.
 template<int Group> __device__ __forceinline__ void commit_net_wires(
@@ -152,10 +151,8 @@ __global__ void commit_wire_demand(const GROTOR_GRID_CONSTANT RoutingDeviceView 
         net_routes = routes + pin_acc_num[net_id] * ROUTE_PER_PIN;
     }
     else{
-        // assert(0);
         net_routes = routes_phase2 + pin_acc_num_phase2[net_id] * ROUTE_PER_PIN_PHASE2;
     }
-    // int *net_routes = routes + pin_acc_num[net_id] * ROUTE_PER_PIN;
     double wirelength = 0;
     //commit wires
     for(int i = 1; i < net_routes[0]; i += 2) if(net_routes[i] / X / Y == net_routes[i + 1] / X / Y) {
@@ -198,7 +195,6 @@ __global__ void commit_via_demand(const GROTOR_GRID_CONSTANT RoutingDeviceView v
     else{
         net_routes = routes_phase2 + pin_acc_num_phase2[net_id] * ROUTE_PER_PIN_PHASE2;
     }
-    // int *net_routes = routes + pin_acc_num[net_id] * ROUTE_PER_PIN;
     int via_count = 0;
     //commit vias
     for(int i = 1; i < net_routes[0]; i += 2) if(net_routes[i] / X / Y != net_routes[i + 1] / X / Y) {

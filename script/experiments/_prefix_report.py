@@ -125,7 +125,7 @@ def write_summary(folder,result):
             m=c['checks']['metrics'];lines.append(f"| {c['name']} | {m['wirelength']} | {m['via']} | {m['overflow']} | {m['total']} | {m['open_nets']} / {m['incomplete_nets']} |")
     lines += ['','## Files and interpretation','',
         'The selected result directory contains accesses.csv/md (three total columns), batch-accesses.csv (batch identity plus reads/writes/maintenance reads), raw original.csv/bit.csv/bit-pruning.csv, evaluator logs, measurement.json, checks.json, worker.log, host-memory.log, gpu-memory.csv and prefix-access.pdf/svg/png. Every chart uses a linear vertical axis starting at zero. Saved raw counts and evaluator logs are checked before plot-only regeneration.','',
-        'This is an isolated direct-query ablation. The normal router currently maintains a dense query cache after BIT updates; that cache is deliberately absent in both experimental BIT arms. Normal routing and DAG throughput do not enable the compile-time access instrumentation. Counts describe the current implementation and need not reproduce numerical values in an earlier paper draft.','',
+        'This benchmark isolates direct BIT queries. Both BIT variants query the tree without a dense query cache; the normal router maintains that cache after BIT updates. Access instrumentation is enabled only in the profiling worker.','',
         'Memory sampling covers the whole worker including external CPU evaluation. GPU memory samples are device-wide every 100 ms. GNU time RSS is not a sum of simultaneously resident parent and child memory.']
     if result.get('plot_generation'):lines += ['','Plots regenerated without routing or GPU work.']
     if result.get('error'):lines += ['','## Error','',result['error']]

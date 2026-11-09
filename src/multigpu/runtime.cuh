@@ -1,9 +1,9 @@
 #pragma once
 
 // One MPI rank owns one GPU. Only rank zero owns the CPU routing database.
-// Small batches use the existing executor; the final batch shares one immutable
-// spatially sharded cost snapshot and exchanges disjoint routes and wire contributions through
-// NVSHMEM's NVLink mappings. A global barrier separates all wires from all vias.
+// Ranks share routing state through NVSHMEM's NVLink mappings. The default
+// L-shape executor distributes every batch; alternate executors are selected at build time.
+// A global barrier separates all wires from all vias.
 #include "routing/lshape_warp.cuh"
 #include "routing/flt_block.cuh"
 #include <mpi.h>
@@ -171,18 +171,17 @@ public:
         broadcast(uid);
         nvshmemx_init_attr_t attr = NVSHMEMX_INIT_ATTR_INITIALIZER;
         nvshmemx_set_attr_uniqueid_args(rank, size, &uid, &attr);
-        // This executor uses host/on-stream APIs and nvshmem_ptr mappings;
-        // no device-side NVSHMEM calls or relocatable CUDA code are required.
 #ifdef GROTOR_MULTI_LEGACY_LSHAPE
+        // The distributed executor uses both host and device NVSHMEM APIs.
         if (nvshmemx_init_attr(NVSHMEMX_INIT_WITH_UNIQUEID, &attr)) throw std::runtime_error("NVSHMEM device initialization failed");
 #else
+        // Alternate executors use host APIs and direct peer mappings.
         if (nvshmemx_hostlib_init_attr(NVSHMEMX_INIT_WITH_UNIQUEID, &attr)) throw std::runtime_error("NVSHMEM initialization failed");
 #endif
         if (nvshmem_my_pe() != rank || nvshmem_n_pes() != size) throw std::runtime_error("MPI/PE rank mismatch");
         cudaDeviceProp properties{};
         cuda_check(cudaGetDeviceProperties(&properties, local_rank), "GPU properties");
-        // Workers have not executed the earlier batches. Load their solver
-        // kernels before measurement, matching rank zero's warm CUDA module.
+        // Load solver entry points on every rank before execution.
         cudaFuncAttributes attributes{};
         cuda_check(cudaFuncGetAttributes(&attributes, Lshape_route::Lshape_route_warp), "load L-shape solver");
         cuda_check(cudaFuncGetAttributes(&attributes, Lshape_route_detour::precompute_cost_edge), "load FLT edge costs");
@@ -192,7 +191,7 @@ public:
         if (!rank) printf("MULTIGPU_LSHAPE_EXECUTOR implementation=legacy-p2p blocks=1056 threads=256 demand=int2 dirty=bool matrix=full single_path=peer all_batches=distributed\n");
 #endif
 #ifdef GROTOR_MULTI_GRID
-        if (!rank) printf("MULTIGPU_CONFIG grid=spatial cost=incremental prefix=local-dense bit=off-all-batches commit=distributed timing=my-gr-cuda-event\n");
+        if (!rank) printf("MULTIGPU_CONFIG grid=spatial cost=incremental prefix=local-dense bit=off-all-batches commit=distributed timing=cuda-event\n");
 #else
         if (!rank) printf("MULTIGPU_CONFIG grid=root cost=incremental prefix=bit commit=root\n");
 #endif

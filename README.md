@@ -184,13 +184,12 @@ python3 script/experiments/compare_ggr.py --data-dir /path/to/cap-net-files --le
 
 Both default to B1/B3/B5/B7/B9/B11. CUGR2 compares **L-shape, Detour and Maze**;
 GGR compares **Z-shape**. Results are runtime tables only. Native LEF/DEF and matching CAP/NET inputs are required. Outputs and logs go to `results/cugr2-comparison`
-and `results/ggr-comparison`， temporary `.guide/.out` files are removed.
+and `results/ggr-comparison`, temporary `.guide/.out` files are removed.
 
 Use `--case mempool_tile` or `--cases ...` for a subset, `--repeats N` for repetition, and `--native-build-dir` / `--build-dir` to reuse compiled native and GRotor adapter targets with `--no-build`. `--native-timeout` defaults to 10800 seconds.
 
 ### 3.3 Microbenchmarks
 
-Names describe the experiment, paper numbering is confined to this mapping.
 Each command selects one case, builds its worker and exports CSV, logs and
 PDF/PNG/SVG plots under `results/<experiment>/<case>/`.
 

@@ -1570,7 +1570,6 @@ inline void prepare_routing_nets(RouterState& state) {
             
             nnets.back().original_net_id = db_net_id;
         }
-        // exit(0);
         db_net.unfinished_subnet_count = nnets.size();
     }
     size_t subnet_count = 0;

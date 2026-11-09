@@ -236,8 +236,8 @@ if(GROTOR_BUILD_INSTANTGR2)
 endif()
 
 # The ordinary single-GPU targets have no MPI/NVSHMEM dependency.
-option(GROTOR_BUILD_MULTIGPU "Build NVLink/NVSHMEM last-batch parallel routing" OFF)
-option(GROTOR_MULTI_GRID "Distribute last-batch grid maintenance across NVSHMEM PEs" ON)
+option(GROTOR_BUILD_MULTIGPU "Build NVLink/NVSHMEM multi-GPU routing" OFF)
+option(GROTOR_MULTI_GRID "Distribute grid maintenance across NVSHMEM PEs" ON)
 option(GROTOR_MULTI_LEGACY_LSHAPE "Use the original full-matrix warp-per-DAG L-shape executor at every GPU count" ON)
 if(GROTOR_BUILD_MULTIGPU)
     if(GROTOR_ENABLE_RTCORE)

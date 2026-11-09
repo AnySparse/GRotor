@@ -116,7 +116,7 @@ def write_summary(folder,result):
     (folder/"summary.json").write_text(json.dumps(result,indent=2)+"\n")
     lines=["# DAG throughput: Per-Batch L-shape Throughput","",f"Status: {result['status']}","",
         "Unoptimized: one thread per DAG, full-grid cost refresh and full prefix scans. Optimized: one warp per DAG with incremental costs and BIT prefix maintenance. Both reuse one immutable CPU batch plan, topology buffers and maximum-batch scratch, and start with the same reset demand, routes and timestamps.","",
-        "Each batch uses synchronized steady-clock timestamps around cost/prefix refresh, DAG solving/traceback and wire/via demand commits. Throughput = batch routing-net count / elapsed seconds. CPU batching, RSMT/DFS construction, allocations, uploads, output and evaluation are outside the interval. The first batch includes the first cost/prefix initialization; no initialization samples are removed.","",
+        "Each batch uses synchronized steady-clock timestamps around cost/prefix refresh, DAG solving/traceback and wire/via demand commits. Throughput = batch routing-net count / elapsed seconds. The first batch includes the first cost/prefix initialization; no initialization samples are removed.","",
         "The two-column throughput.csv is ordered by batch execution index starting at zero. batch-runtime.csv retains net/node counts, common plan fingerprints, timing boundaries, durations and speedups. Every batch and every plotted point is retained. Markers alone are spaced for legibility.","",
         "| Dataset | Batches | Routing nets | Without ms | With ms | Aggregate speedup | Without aggregate nets/s | With aggregate nets/s |",
         "|---|---:|---:|---:|---:|---:|---:|---:|"]
@@ -134,7 +134,7 @@ def write_summary(folder,result):
     lines += ["","## Interpretation and files","",
         "These are L-shape-only evaluator costs, before FLT rerouting. The unoptimized curve uses the original scalar DAG algorithm in the same explicit-memory framework; it is not a separate managed-memory InstantGR2 executable.","",
         "The selected result directory contains throughput.csv/md, batch-runtime.csv, both raw variant CSVs, both evaluator logs, measurement.json, checks.json, worker.log, host-memory.log, gpu-memory.csv and dag-throughput.pdf/svg/png.","",
-        "Measurements are single sequential runs with unlocked GPU clocks. Both solver entry points are warmed with inactive launches before timing. State resets and BIT allocations are outside timing. Sampling covers the entire worker including external CPU evaluation; GPU memory samples are device-wide every 100 ms. GNU time RSS is a process-tree observation, not the summed family memory footprint."]
+        "Measurements are single sequential runs with unlocked GPU clocks. Both solver entry points are warmed with inactive launches before timing. Sampling covers the entire worker including external CPU evaluation; GPU memory samples are device-wide every 100 ms. GNU time RSS is a process-tree observation, not the summed family memory footprint."]
     if result.get("plot_generation"):lines += ["","Plots regenerated from saved, validated raw batch timings and evaluator logs; no routing rerun."]
     if result.get("error"):lines += ["","## Error","",result["error"]]
     (folder/"summary.md").write_text("\n".join(lines)+"\n")

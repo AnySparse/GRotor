@@ -152,7 +152,7 @@ def write_summary(folder, result, plots=False):
     lines=['# GRotor / InstantGR2 comparison','', 'Status: '+result['status'], '',
         'Component times are per-component medians across paired measured runs. Total = batching + routing DAG. Warmups and evaluation are excluded.',
         'InstantGR2 dual mode times CUDA batching and routes with the deterministic CPU plan, sparsity 1. GRotor uses RT-Core batching, incremental costs/BIT and warp/block DAG scheduling.',
-        'GRotor DAG timers are continuous; InstantGR2 FLT retains its GPU-suffix sum. RT-Core setup/collection boundaries are preserved in the raw records.', '',
+        'GRotor DAG timers are continuous; InstantGR2 FLT retains its GPU-suffix sum.', '',
         '| Dataset | Algorithm | InstantGR2 total ms | GRotor total ms | Total speedup | Batching speedup | DAG speedup |',
         '|---|---|---:|---:|---:|---:|---:|']
     for r in rows:

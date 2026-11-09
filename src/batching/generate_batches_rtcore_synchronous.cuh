@@ -68,7 +68,7 @@ inline Result generate_batches_rtcore_synchronous(cudb::RouterState& state,
     Resources resources;
     auto scene = build_scene(resources,state,order,limit);
     const auto sbt = build_pipeline(resources,ptx,3,"__raygen__rtcore_synchronous","__anyhit__rtcore_synchronous");
-    cuda_check(cudaStreamCreateWithFlags(&resources.stream,cudaStreamNonBlocking),"create Fig7 stream");
+    cuda_check(cudaStreamCreateWithFlags(&resources.stream,cudaStreamNonBlocking),"create synchronous batching stream");
     LaunchParams p{};
     auto& q = p.query;
     q.gas_handle=scene.handle;q.ray_origins=scene.origins;q.ray_to_net=scene.ray_to_net;
@@ -98,37 +98,37 @@ inline Result generate_batches_rtcore_synchronous(cudb::RouterState& state,
     // independent reset, not a padded trace or a replay of precomputed colors.
     for (bool blocker : {true,false}) {
         p.use_blocker=blocker;
-        cuda_check(cudaMemset(q.batch_id,0xff,size_t(q.total_nets)*sizeof(int)),"reset Fig7 colors");
-        cuda_check(cudaMemset(q.blocker_id,0,size_t(q.total_nets)*sizeof(int)),"reset Fig7 blockers");
-        cuda_check(cudaMemset(p.assigned_round,0xff,size_t(q.total_nets)*sizeof(int)),"reset Fig7 assignment rounds");
+        cuda_check(cudaMemset(q.batch_id,0xff,size_t(q.total_nets)*sizeof(int)),"reset synchronous batching colors");
+        cuda_check(cudaMemset(q.blocker_id,0,size_t(q.total_nets)*sizeof(int)),"reset synchronous batching blockers");
+        cuda_check(cudaMemset(p.assigned_round,0xff,size_t(q.total_nets)*sizeof(int)),"reset synchronous batching assignment rounds");
         thrust::sequence(thrust::device,q.active_ray_indices,q.active_ray_indices+scene.rays);
         int remaining=q.total_nets;
-        cuda_check(cudaMemcpy(q.d_unassigned_count,&remaining,sizeof(int),cudaMemcpyHostToDevice),"reset Fig7 remaining count");
+        cuda_check(cudaMemcpy(q.d_unassigned_count,&remaining,sizeof(int),cudaMemcpyHostToDevice),"reset synchronous batching remaining count");
         auto& rows=blocker ? result.with_blocker:result.without_blocker;
         while (remaining) {
             q.iteration=rows.size();
             reset_round<<<blocks,threads,0,resources.stream>>>(p);
             int width=q.num_rays;
             if (q.iteration) {
-                cuda_check(cudaMemsetAsync(active_count,0,sizeof(int),resources.stream),"reset Fig7 active count");
+                cuda_check(cudaMemsetAsync(active_count,0,sizeof(int),resources.stream),"reset synchronous batching active count");
                 fast_compact_rays_kernel<<<(q.num_rays+255)/256,256,0,resources.stream>>>(
                     q.ray_to_net,q.batch_id,p.eligible,q.active_ray_indices,active_count,q.num_rays);
-                cuda_check(cudaMemcpyAsync(&width,active_count,sizeof(int),cudaMemcpyDeviceToHost,resources.stream),"download Fig7 active count");
-                cuda_check(cudaStreamSynchronize(resources.stream),"complete Fig7 compaction");
+                cuda_check(cudaMemcpyAsync(&width,active_count,sizeof(int),cudaMemcpyDeviceToHost,resources.stream),"download synchronous batching active count");
+                cuda_check(cudaStreamSynchronize(resources.stream),"complete synchronous batching compaction");
             }
-            if (!width) throw std::runtime_error("Fig7 synchronous coloring stalled");
-            cuda_check(cudaMemsetAsync(p.trace_counts,0,bins*sizeof(unsigned),resources.stream),"reset Fig7 trace counters");
-            cuda_check(cudaMemcpyAsync(params,&p,sizeof(p),cudaMemcpyHostToDevice,resources.stream),"upload Fig7 launch parameters");
-            optix_check(optixLaunch(resources.pipeline,resources.stream,address(params),sizeof(p),&sbt,width,1,1),"Fig7 ray tracing");
+            if (!width) throw std::runtime_error("synchronous batching coloring stalled");
+            cuda_check(cudaMemsetAsync(p.trace_counts,0,bins*sizeof(unsigned),resources.stream),"reset synchronous batching trace counters");
+            cuda_check(cudaMemcpyAsync(params,&p,sizeof(p),cudaMemcpyHostToDevice,resources.stream),"upload synchronous batching launch parameters");
+            optix_check(optixLaunch(resources.pipeline,resources.stream,address(params),sizeof(p),&sbt,width,1,1),"synchronous batching ray tracing");
             assign_pending<<<blocks,threads,0,resources.stream>>>(p);
             commit_round<<<blocks,threads,0,resources.stream>>>(p);
             const auto rays=thrust::reduce(thrust::cuda::par.on(resources.stream),p.trace_counts,p.trace_counts+bins,0ULL,thrust::plus<unsigned long long>());
             const int before=remaining;
-            cuda_check(cudaMemcpyAsync(&remaining,q.d_unassigned_count,sizeof(int),cudaMemcpyDeviceToHost,resources.stream),"download Fig7 progress");
-            cuda_check(cudaStreamSynchronize(resources.stream),"complete Fig7 round");
-            if (rays!=static_cast<unsigned long long>(width)) throw std::runtime_error("Actual Fig7 trace count differs from frozen launch eligibility");
+            cuda_check(cudaMemcpyAsync(&remaining,q.d_unassigned_count,sizeof(int),cudaMemcpyDeviceToHost,resources.stream),"download synchronous batching progress");
+            cuda_check(cudaStreamSynchronize(resources.stream),"complete synchronous batching round");
+            if (rays!=static_cast<unsigned long long>(width)) throw std::runtime_error("Actual synchronous batching trace count differs from frozen launch eligibility");
             if (remaining>=before || rows.size()>=size_t(q.total_nets))
-                throw std::runtime_error("Fig7 stalled or exhausted its 1024-batch mask");
+                throw std::runtime_error("synchronous batching stalled or exhausted its 1024-batch mask");
             rows.push_back({rays,before,remaining});
             if (progress) progress(blocker,q.iteration,rows.back());
             if (!blocker && (rows.size()>result.with_blocker.size() ||
@@ -137,19 +137,19 @@ inline Result generate_batches_rtcore_synchronous(cudb::RouterState& state,
                 throw std::runtime_error("Blocker ablation changed the synchronous assignment history");
         }
         if (blocker) {
-            cuda_check(cudaMemcpy(expected_colors,q.batch_id,size_t(q.total_nets)*sizeof(int),cudaMemcpyDeviceToDevice),"save Fig7 colors");
-            cuda_check(cudaMemcpy(expected_rounds,p.assigned_round,size_t(q.total_nets)*sizeof(int),cudaMemcpyDeviceToDevice),"save Fig7 assignment history");
+            cuda_check(cudaMemcpy(expected_colors,q.batch_id,size_t(q.total_nets)*sizeof(int),cudaMemcpyDeviceToDevice),"save synchronous batching colors");
+            cuda_check(cudaMemcpy(expected_rounds,p.assigned_round,size_t(q.total_nets)*sizeof(int),cudaMemcpyDeviceToDevice),"save synchronous batching assignment history");
         } else {
-            cuda_check(cudaMemset(errors,0,2*sizeof(int)),"reset Fig7 comparison");
+            cuda_check(cudaMemset(errors,0,2*sizeof(int)),"reset synchronous batching comparison");
             compare_assignments<<<blocks,threads>>>(p,expected_colors,expected_rounds,errors);
             int counts[2];
-            cuda_check(cudaMemcpy(counts,errors,sizeof(counts),cudaMemcpyDeviceToHost),"compare Fig7 per-net history");
+            cuda_check(cudaMemcpy(counts,errors,sizeof(counts),cudaMemcpyDeviceToHost),"compare synchronous batching per-net history");
             result.exact_batch_ids=counts[0]==0;
             result.exact_assignment_rounds=counts[1]==0;
         }
     }
     if (!result.exact_batch_ids || !result.exact_assignment_rounds || result.with_blocker.size()!=result.without_blocker.size())
-        throw std::runtime_error("Fig7 variants differ in colors or assignment rounds");
+        throw std::runtime_error("synchronous batching variants differ in colors or assignment rounds");
     result.batches=collect_batches(q.batch_id,order,limit);
     return result;
 }

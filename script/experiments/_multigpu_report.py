@@ -91,11 +91,11 @@ def write_summary(folder, result, plot=True):
                                         'overflow', 'total', 'open_nets', 'incomplete_nets'])
         writer.writeheader(); writer.writerows(quality)
     lines = ['# GRotor L-shape Final-Batch Scaling', '', f"Status: {result['status']}", '',
-        'All L-shape batches execute with the same legacy BFS NVSHMEM implementation at every GPU count.',
+        'All L-shape batches execute with the same distributed BFS NVSHMEM implementation at every GPU count.',
         'Only the final executed batch is used for runtime and scaling. FLT is not executed.',
         'Its CUDA-event interval includes DP/traceback, separate wire/via commits, post-commit dirty cost updates,',
         'full local presum scans and required synchronization. BIT is disabled on all batches.',
-        'elapsed_ms is the maximum participating rank time. Preparation and final collection are excluded.',
+        'elapsed_ms is the maximum participating rank time.',
         'snapshot_ms names post-commit cost/presum maintenance; solve_ms excludes separate commits.',
         'Speedup = median T(1 GPU) / median T(N GPUs); this is not whole-router speedup.',
         'L-shape route outputs are independently evaluated for zero open/incomplete nets and identical costs across GPU counts.',
